@@ -13,6 +13,13 @@ import { passkey } from "@better-auth/passkey";
 import { createDb } from "@/db";
 import * as schema from "@/db/schema";
 import type { Bindings } from "@/types/env";
+import {
+  sendMagicLinkEmail,
+  sendPasswordResetEmail,
+  sendEmailVerificationEmail,
+  sendOrganizationInviteEmail,
+} from "@/lib/email";
+import { dispatchWebhook } from "@/lib/webhooks";
 
 export function createAuth(env: Bindings, request?: Request) {
   const db = createDb(env.DB);
@@ -60,9 +67,111 @@ export function createAuth(env: Bindings, request?: Request) {
       provider: "sqlite",
       schema,
     }),
+    session: {
+      cookieCache: {
+        enabled: true,
+        maxAge: 5 * 60, // 5 minutes fast cache in secure encrypted cookie
+      },
+    },
+    rateLimit: {
+      enabled: env.ENVIRONMENT !== "test" && process.env.NODE_ENV !== "test",
+      window: 60,
+      max: 100,
+      storage: "memory",
+    },
+    advanced: {
+      crossSubDomainCookies: env.COOKIE_DOMAIN
+        ? {
+            enabled: true,
+            domain: env.COOKIE_DOMAIN,
+          }
+        : undefined,
+    },
+    databaseHooks: {
+      user: {
+        create: {
+          before: async (user) => {
+            const adminEmails = (env.ADMIN_EMAILS || "")
+              .split(",")
+              .map((e) => e.trim().toLowerCase())
+              .filter(Boolean);
+
+            if (adminEmails.includes(user.email.toLowerCase())) {
+              return {
+                data: {
+                  ...user,
+                  role: "admin",
+                },
+              };
+            }
+          },
+          after: async (user) => {
+            if (env.WEBHOOK_URL) {
+              await dispatchWebhook(env, {
+                event: "user.created",
+                data: {
+                  id: user.id,
+                  email: user.email,
+                  name: user.name,
+                  role: (user as any).role,
+                  createdAt: user.createdAt,
+                },
+              });
+            }
+          },
+        },
+        update: {
+          after: async (user) => {
+            if (env.WEBHOOK_URL) {
+              await dispatchWebhook(env, {
+                event: "user.updated",
+                data: {
+                  id: user.id,
+                  email: user.email,
+                  name: user.name,
+                  role: (user as any).role,
+                  updatedAt: user.updatedAt,
+                },
+              });
+            }
+          },
+        },
+      },
+      session: {
+        create: {
+          after: async (session) => {
+            if (env.WEBHOOK_URL) {
+              await dispatchWebhook(env, {
+                event: "session.created",
+                data: {
+                  id: session.id,
+                  userId: session.userId,
+                  expiresAt: session.expiresAt,
+                  createdAt: session.createdAt,
+                },
+              });
+            }
+          },
+        },
+      },
+    },
     emailAndPassword: {
       enabled: true,
       requireEmailVerification: false,
+      sendResetPassword: async ({ user, url }: { user: { email: string }; url: string; token: string }) => {
+        await sendPasswordResetEmail({
+          email: user.email,
+          url,
+          env,
+        });
+      },
+      sendVerificationEmail: async ({ user, url }: { user: { email: string }; url: string; token: string }) => {
+        await sendEmailVerificationEmail({
+          email: user.email,
+          url,
+          env,
+        });
+      },
     },
     socialProviders: Object.keys(socialProviders).length > 0 ? (socialProviders as any) : undefined,
     plugins: [
@@ -70,33 +179,27 @@ export function createAuth(env: Bindings, request?: Request) {
         issuer: "Edgekit Auth",
       }),
       passkey(),
-      organization(),
+      organization({
+        sendInvitationEmail: async (data) => {
+          const inviteUrl = `${baseURL}/accept-invitation?id=${data.id}`;
+          await sendOrganizationInviteEmail({
+            email: data.email,
+            organizationName: data.organization.name,
+            inviterEmail: (data as any).inviter?.email,
+            role: data.role,
+            inviteUrl,
+            env,
+          });
+        },
+      }),
       admin(),
       magicLink({
         sendMagicLink: async ({ email, url }) => {
-          if (env.RESEND_API_KEY) {
-            try {
-              await fetch("https://api.resend.com/emails", {
-                method: "POST",
-                headers: {
-                  Authorization: `Bearer ${env.RESEND_API_KEY}`,
-                  "Content-Type": "application/json",
-                },
-                body: JSON.stringify({
-                  from: env.FROM_EMAIL || "onboarding@resend.dev",
-                  to: email,
-                  subject: "Seu link de acesso - Edgekit Auth",
-                  html: `<p>Acesse sua conta clicando no link abaixo:</p><p><a href="${url}">${url}</a></p>`,
-                }),
-              });
-            } catch (err) {
-              console.error("[Email] Erro ao enviar Magic Link:", err);
-            }
-          } else {
-            console.log(
-              `\n========================================\n[MAGIC LINK DEV CONSOLE]\nPara: ${email}\nLink: ${url}\n========================================\n`
-            );
-          }
+          await sendMagicLinkEmail({
+            email,
+            url,
+            env,
+          });
         },
       }),
       jwt(),

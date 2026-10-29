@@ -7,12 +7,17 @@ compatibility_flags = ["nodejs_compat"]
 ENVIRONMENT = "development"
 APP_URL = "http://localhost:8787"
 BETTER_AUTH_URL = "http://localhost:8787"
+# Em produção, remova os segredos abaixo de [vars] e adicione via:
+#   npx wrangler secret put BETTER_AUTH_SECRET
+#   npx wrangler secret put COOKIE_SECRET
 BETTER_AUTH_SECRET = "super-secret-better-auth-key-min-32-chars-long-12345"
 COOKIE_SECRET = "super-secret-cookie-encryption-key-min-32-chars-long"
 
 [[d1_databases]]
 binding = "DB"
 database_name = "hono-auth-db"
+# Para produção no Cloudflare:
+# Crie o banco com 'npx wrangler d1 create hono-auth-db' e substitua o database_id abaixo pelo UUID gerado:
 database_id = "local-d1-db"
 migrations_dir = "drizzle/migrations"
 
@@ -21,4 +26,3 @@ directory = "./dashboard/dist"
 binding = "ASSETS"
 not_found_handling = "single-page-application"
 run_worker_first = true
-

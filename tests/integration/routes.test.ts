@@ -269,4 +269,66 @@ describe("Edgekit Auth (Better Auth) Integration Tests", () => {
       expect(res.status).toBe(404);
     });
   });
+
+  describe("Admin Bootstrapping & Webhooks Integration", () => {
+    it("should automatically assign role 'admin' if user email is listed in ADMIN_EMAILS", async () => {
+      const envWithAdmin: Bindings = {
+        ...mockEnv,
+        ADMIN_EMAILS: "superadmin@edgekit.dev, another@test.com",
+      };
+
+      const res = await app.request(
+        "/api/auth/sign-up/email",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            email: "superadmin@edgekit.dev",
+            password: "AdminPassword123!",
+            name: "Super Admin",
+          }),
+        },
+        envWithAdmin
+      );
+
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as any;
+      expect(body.user.role).toBe("admin");
+    });
+
+    it("should accept forgot-password request and trigger password reset email flow", async () => {
+      // 1. Sign up user first
+      await app.request(
+        "/api/auth/sign-up/email",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            email: "esqueci@exemplo.com",
+            password: "MinhaSenha123!",
+            name: "Usuario Esquecido",
+          }),
+        },
+        mockEnv
+      );
+
+      // 2. Request password reset
+      const res = await app.request(
+        "/api/auth/request-password-reset",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            email: "esqueci@exemplo.com",
+            redirectTo: "http://localhost:8787/reset-password",
+          }),
+        },
+        mockEnv
+      );
+
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as any;
+      expect(body.status).toBe(true);
+    });
+  });
 });

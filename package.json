@@ -1,9 +1,9 @@
 {
-  "name": "hono-auth",
-  "version": "0.1.0",
+  "name": "edgekit-auth",
+  "version": "0.2.0",
   "type": "module",
   "private": true,
-  "description": "Open-source Clerk alternative backend built with Hono for Cloudflare Workers & agnostic runtimes",
+  "description": "High-Performance Edge Authentication Engine built on Hono, Better Auth and Cloudflare Workers",
   "main": "src/index.ts",
   "scripts": {
     "dev": "concurrently -k -p \"[{name}]\" -n \"API,WEB\" -c \"cyan,magenta\" \"pnpm:dev:api\" \"pnpm:dev:web\"",
@@ -15,7 +15,9 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate:local": "wrangler d1 migrations apply hono-auth-db --local",
     "db:migrate:remote": "wrangler d1 migrations apply hono-auth-db --remote",
-    "generate-keys": "node --experimental-strip-types scripts/generate-keys.ts",
+    "admin:create": "node --experimental-strip-types scripts/create-admin.ts",
+    "admin:promote": "node --experimental-strip-types scripts/create-admin.ts",
+    "admin:list": "node --experimental-strip-types scripts/create-admin.ts --list",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
@@ -24,7 +26,6 @@
     "@better-auth/passkey": "^1.7.14",
     "@hono/swagger-ui": "^0.5.0",
     "@hono/zod-openapi": "^0.18.4",
-    "arctic": "^3.5.0",
     "better-auth": "^1.7.14",
     "drizzle-orm": "^0.40.0",
     "hono": "^4.7.2",
