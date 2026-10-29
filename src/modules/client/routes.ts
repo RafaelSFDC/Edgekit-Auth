@@ -152,6 +152,36 @@ clientRoutes.post("/v1/client/sessions/:id/remove", async (c) => {
 });
 
 /**
+ * List all active sessions for the authenticated user (Device security).
+ */
+clientRoutes.get("/v1/client/sessions", clientAuth(), async (c) => {
+  const userId = c.get("userId")!;
+  const sessionId = c.get("sessionId")!;
+  const db = c.get("db");
+
+  const activeSessions = await AuthService.getUserActiveSessions(
+    db,
+    userId,
+    sessionId
+  );
+
+  return c.json({ data: activeSessions });
+});
+
+/**
+ * Revoke all other active sessions (Keep only the current device).
+ */
+clientRoutes.post("/v1/client/sessions/revoke-others", clientAuth(), async (c) => {
+  const userId = c.get("userId")!;
+  const sessionId = c.get("sessionId")!;
+  const db = c.get("db");
+
+  await AuthService.revokeOtherSessions(db, userId, sessionId);
+
+  return c.json({ success: true, message: "All other sessions have been revoked" });
+});
+
+/**
  * Get current authenticated user details.
  */
 clientRoutes.get("/v1/client/users/me", clientAuth(), async (c) => {

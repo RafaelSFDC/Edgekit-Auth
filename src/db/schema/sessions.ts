@@ -14,6 +14,9 @@ export const sessions = sqliteTable(
     refreshTokenHash: text("refresh_token_hash"),
     userAgent: text("user_agent"),
     ipAddress: text("ip_address"),
+    city: text("city"),
+    country: text("country"),
+    deviceInfo: text("device_info"), // e.g. "Chrome on Windows"
     lastActiveAt: integer("last_active_at", { mode: "timestamp_ms" })
       .notNull()
       .$defaultFn(() => new Date()),

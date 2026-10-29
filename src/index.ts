@@ -5,9 +5,11 @@ import { createCorsMiddleware } from "@/middlewares/cors";
 import { errorHandler } from "@/middlewares/error-handler";
 import { jwksRoutes } from "@/modules/jwks/routes";
 import { oauthRoutes } from "@/modules/oauth/routes";
+import { emailAuthRoutes } from "@/modules/email/routes";
 import { clientRoutes } from "@/modules/client/routes";
 import { backendRoutes } from "@/modules/backend/routes";
 import { docsRoutes } from "@/modules/docs";
+import { uiRoutes } from "@/modules/ui/routes";
 
 const app = new Hono<AppContext>();
 
@@ -43,8 +45,10 @@ app.get("/health", (c) => {
 // Mount Routes
 app.route("/", jwksRoutes);
 app.route("/", oauthRoutes);
+app.route("/", emailAuthRoutes);
 app.route("/", clientRoutes);
 app.route("/", backendRoutes);
 app.route("/", docsRoutes);
+app.route("/", uiRoutes);
 
 export default app;

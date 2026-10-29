@@ -23,6 +23,10 @@ export interface Bindings {
   GITHUB_CLIENT_SECRET?: string;
   GITHUB_REDIRECT_URI?: string;
 
+  // Email Service (Resend or Cloudflare)
+  RESEND_API_KEY?: string;
+  FROM_EMAIL?: string;
+
   // Webhook
   WEBHOOK_SECRET?: string;
 }

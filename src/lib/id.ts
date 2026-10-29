@@ -1,7 +1,7 @@
 /**
  * Clerk-style prefixed ID generator using Web Crypto API.
  */
-export type IdPrefix = "user" | "sess" | "idn" | "org" | "orgmem" | "inv";
+export type IdPrefix = "user" | "sess" | "idn" | "org" | "orgmem" | "inv" | "verif";
 
 export function generateId(prefix: IdPrefix): string {
   const bytes = new Uint8Array(16);

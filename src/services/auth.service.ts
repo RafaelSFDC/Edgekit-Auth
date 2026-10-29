@@ -1,6 +1,6 @@
-import { eq, and } from "drizzle-orm";
+import { eq, and, ne } from "drizzle-orm";
 import type { Database } from "@/db";
-import { users, identities, sessions } from "@/db/schema";
+import { users, identities, sessions, verificationTokens } from "@/db/schema";
 import type { NormalizedProfile } from "@/lib/oauth";
 import { generateId } from "@/lib/id";
 import { generateRandomString, sha256 } from "@/lib/crypto";
@@ -13,6 +13,14 @@ export interface SessionResult {
   refreshToken: string;
 }
 
+export interface ClientLocationInfo {
+  userAgent?: string;
+  ipAddress?: string;
+  city?: string | null;
+  country?: string | null;
+  deviceInfo?: string;
+}
+
 export class AuthService {
   /**
    * Process OAuth user profile: link account or create new user, and start session.
@@ -20,7 +28,7 @@ export class AuthService {
   static async handleOAuthLogin(
     db: Database,
     profile: NormalizedProfile,
-    clientInfo: { userAgent?: string; ipAddress?: string },
+    clientInfo: ClientLocationInfo,
     jwtConfig?: KeyPairConfig
   ): Promise<SessionResult> {
     // 1. Check if identity already exists
@@ -38,7 +46,6 @@ export class AuthService {
     let user: typeof users.$inferSelect;
 
     if (existingIdentity) {
-      // User identity found
       const [foundUser] = await db
         .select()
         .from(users)
@@ -55,7 +62,6 @@ export class AuthService {
 
       user = foundUser;
 
-      // Update profile info if changed
       await db
         .update(users)
         .set({
@@ -66,7 +72,6 @@ export class AuthService {
         })
         .where(eq(users.id, user.id));
     } else {
-      // 2. Check if user with same verified email already exists (Account Linking)
       let matchedUser: typeof users.$inferSelect | undefined;
 
       if (profile.email) {
@@ -81,7 +86,6 @@ export class AuthService {
       if (matchedUser) {
         user = matchedUser;
       } else {
-        // Create new user
         const newUserId = generateId("user");
         const [createdUser] = await db
           .insert(users)
@@ -99,7 +103,6 @@ export class AuthService {
         user = createdUser;
       }
 
-      // Link identity to user
       const identityId = generateId("idn");
       await db.insert(identities).values({
         id: identityId,
@@ -113,7 +116,72 @@ export class AuthService {
       });
     }
 
-    // 3. Create active session
+    // Create session with geolocation and device info
+    return this.createActiveSession(db, user, clientInfo, jwtConfig);
+  }
+
+  /**
+   * Process email login (Magic Link or OTP): find or create user and start session.
+   */
+  static async handleEmailLogin(
+    db: Database,
+    email: string,
+    clientInfo: ClientLocationInfo,
+    jwtConfig?: KeyPairConfig
+  ): Promise<SessionResult> {
+    const cleanEmail = email.trim().toLowerCase();
+
+    const [existingUser] = await db
+      .select()
+      .from(users)
+      .where(eq(users.primaryEmail, cleanEmail))
+      .limit(1);
+
+    let user: typeof users.$inferSelect;
+
+    if (existingUser) {
+      if (existingUser.banned) {
+        throw new Error("User account is suspended");
+      }
+      user = existingUser;
+    } else {
+      const newUserId = generateId("user");
+      const [createdUser] = await db
+        .insert(users)
+        .values({
+          id: newUserId,
+          primaryEmail: cleanEmail,
+          banned: false,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        })
+        .returning();
+      user = createdUser;
+
+      const identityId = generateId("idn");
+      await db.insert(identities).values({
+        id: identityId,
+        userId: user.id,
+        provider: "email",
+        providerUserId: cleanEmail,
+        email: cleanEmail,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+    }
+
+    return this.createActiveSession(db, user, clientInfo, jwtConfig);
+  }
+
+  /**
+   * Creates an active session with device and geolocation data.
+   */
+  private static async createActiveSession(
+    db: Database,
+    user: typeof users.$inferSelect,
+    clientInfo: ClientLocationInfo,
+    jwtConfig?: KeyPairConfig
+  ): Promise<SessionResult> {
     const sessionId = generateId("sess");
     const rawRefreshToken = generateRandomString(48);
     const refreshTokenHash = await sha256(rawRefreshToken);
@@ -128,6 +196,9 @@ export class AuthService {
         refreshTokenHash,
         userAgent: clientInfo.userAgent,
         ipAddress: clientInfo.ipAddress,
+        city: clientInfo.city,
+        country: clientInfo.country,
+        deviceInfo: clientInfo.deviceInfo,
         lastActiveAt: new Date(),
         expiresAt,
         createdAt: new Date(),
@@ -135,7 +206,6 @@ export class AuthService {
       })
       .returning();
 
-    // 4. Issue short-lived JWT (5 minutes)
     const token = await signSessionToken(
       {
         sub: user.id,
@@ -147,6 +217,146 @@ export class AuthService {
     );
 
     return { user, session, token, refreshToken: rawRefreshToken };
+  }
+
+  /**
+   * Generates a 6-digit OTP and Magic Link token for email authentication.
+   */
+  static async createEmailVerification(
+    db: Database,
+    email: string
+  ): Promise<{ code: string; rawToken: string }> {
+    const cleanEmail = email.trim().toLowerCase();
+
+    // 6-digit numeric OTP code
+    const code = Math.floor(100000 + Math.random() * 900000).toString();
+    const rawToken = generateRandomString(32);
+    const tokenHash = await sha256(rawToken);
+    const expiresAt = new Date(Date.now() + 15 * 60 * 1000); // 15 minutes
+
+    const id = generateId("verif");
+
+    await db.insert(verificationTokens).values({
+      id,
+      identifier: cleanEmail,
+      tokenHash,
+      code,
+      type: "email_otp",
+      expiresAt,
+      createdAt: new Date(),
+    });
+
+    return { code, rawToken };
+  }
+
+  /**
+   * Verifies an OTP code for an email.
+   */
+  static async verifyEmailOtp(
+    db: Database,
+    email: string,
+    code: string
+  ): Promise<boolean> {
+    const cleanEmail = email.trim().toLowerCase();
+    const cleanCode = code.trim();
+
+    const [match] = await db
+      .select()
+      .from(verificationTokens)
+      .where(
+        and(
+          eq(verificationTokens.identifier, cleanEmail),
+          eq(verificationTokens.code, cleanCode)
+        )
+      )
+      .limit(1);
+
+    if (!match) {
+      return false;
+    }
+
+    if (new Date() > match.expiresAt) {
+      await db.delete(verificationTokens).where(eq(verificationTokens.id, match.id));
+      return false;
+    }
+
+    // Single-use: delete once verified
+    await db.delete(verificationTokens).where(eq(verificationTokens.id, match.id));
+    return true;
+  }
+
+  /**
+   * Verifies a Magic Link token.
+   */
+  static async verifyMagicLink(
+    db: Database,
+    email: string,
+    rawToken: string
+  ): Promise<boolean> {
+    const cleanEmail = email.trim().toLowerCase();
+    const tokenHash = await sha256(rawToken.trim());
+
+    const [match] = await db
+      .select()
+      .from(verificationTokens)
+      .where(
+        and(
+          eq(verificationTokens.identifier, cleanEmail),
+          eq(verificationTokens.tokenHash, tokenHash)
+        )
+      )
+      .limit(1);
+
+    if (!match) {
+      return false;
+    }
+
+    if (new Date() > match.expiresAt) {
+      await db.delete(verificationTokens).where(eq(verificationTokens.id, match.id));
+      return false;
+    }
+
+    await db.delete(verificationTokens).where(eq(verificationTokens.id, match.id));
+    return true;
+  }
+
+  /**
+   * Get all active sessions for a user, indicating the current session.
+   */
+  static async getUserActiveSessions(
+    db: Database,
+    userId: string,
+    currentSessionId?: string
+  ) {
+    const list = await db
+      .select()
+      .from(sessions)
+      .where(and(eq(sessions.userId, userId), eq(sessions.status, "active")));
+
+    return list.map((s) => ({
+      ...s,
+      isCurrent: s.id === currentSessionId,
+    }));
+  }
+
+  /**
+   * Revoke all other sessions for a user, keeping only the current one active.
+   */
+  static async revokeOtherSessions(
+    db: Database,
+    userId: string,
+    currentSessionId: string
+  ): Promise<void> {
+    await db
+      .update(sessions)
+      .set({ status: "revoked", updatedAt: new Date() })
+      .where(
+        and(
+          eq(sessions.userId, userId),
+          ne(sessions.id, currentSessionId),
+          eq(sessions.status, "active")
+        )
+      );
   }
 
   /**
@@ -176,10 +386,8 @@ export class AuthService {
       throw new Error("Session has expired");
     }
 
-    // Check refresh token hash
     const incomingHash = await sha256(rawRefreshToken);
     if (session.refreshTokenHash !== incomingHash) {
-      // Possible token reuse / breach: revoke session immediately!
       await db
         .update(sessions)
         .set({ status: "revoked", updatedAt: new Date() })
@@ -187,7 +395,6 @@ export class AuthService {
       throw new Error("Invalid refresh token (session revoked for security)");
     }
 
-    // Rotate refresh token
     const newRefreshToken = generateRandomString(48);
     const newHash = await sha256(newRefreshToken);
 
@@ -200,7 +407,6 @@ export class AuthService {
       })
       .where(eq(sessions.id, sessionId));
 
-    // Fetch user for claims
     const [user] = await db
       .select()
       .from(users)

@@ -5,6 +5,8 @@ import type { AppContext } from "@/types/env";
 import { createGoogleProvider, createGitHubProvider, type NormalizedProfile } from "@/lib/oauth";
 import { AuthService } from "@/services/auth.service";
 
+import { parseClientInfo } from "@/lib/client-info";
+
 export const oauthRoutes = new Hono<AppContext>();
 
 oauthRoutes.get("/v1/client/oauth/:provider/authorize", async (c) => {
@@ -150,13 +152,7 @@ oauthRoutes.get("/v1/client/oauth/:provider/callback", async (c) => {
     deleteCookie(c, "__oauth_redirect_url", { path: "/" });
   }
 
-  const clientInfo = {
-    userAgent: c.req.header("User-Agent"),
-    ipAddress:
-      c.req.header("CF-Connecting-IP") ||
-      c.req.header("x-forwarded-for") ||
-      "127.0.0.1",
-  };
+  const clientInfo = parseClientInfo(c);
 
   const jwtConfig = {
     issuer: c.env.JWT_ISSUER,
