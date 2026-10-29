@@ -17,9 +17,12 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@better-auth/drizzle-adapter": "^1.7.14",
+    "@better-auth/passkey": "^1.7.14",
     "@hono/swagger-ui": "^0.5.0",
     "@hono/zod-openapi": "^0.18.4",
     "arctic": "^3.5.0",
+    "better-auth": "^1.7.14",
     "drizzle-orm": "^0.40.0",
     "hono": "^4.7.2",
     "jose": "^5.10.0",

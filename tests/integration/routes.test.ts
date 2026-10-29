@@ -1,128 +1,206 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeEach } from "vitest";
 import app from "@/index";
+import { createMockD1 } from "../helpers/mock-d1";
+import type { Bindings } from "@/types/env";
 
-const mockEnv = {
-  ENVIRONMENT: "development",
-  APP_URL: "http://localhost:8787",
-  JWT_ISSUER: "https://auth.local",
-  JWT_AUDIENCE: "hono-auth-client",
-  ADMIN_SECRET_KEY: "sk_test_mock_secret_key_12345",
-  DB: {} as any,
-};
+describe("Edgekit Auth (Better Auth) Integration Tests", () => {
+  let mockEnv: Bindings;
 
-describe("Integration Route Tests", () => {
-  it("GET / should return service status", async () => {
-    const res = await app.request("/", {}, mockEnv);
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as any;
-    expect(body.status).toBe("running");
-    expect(body.name).toBe("hono-auth");
+  beforeEach(() => {
+    mockEnv = {
+      ENVIRONMENT: "development",
+      APP_URL: "http://localhost:8787",
+      BETTER_AUTH_URL: "http://localhost:8787",
+      BETTER_AUTH_SECRET: "test-secret-at-least-32-characters-long-123456",
+      DB: createMockD1(),
+    };
   });
 
-  it("GET /health should return healthy", async () => {
-    const res = await app.request("/health", {}, mockEnv);
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as any;
-    expect(body.status).toBe("healthy");
+  describe("Service Health & Discovery", () => {
+    it("GET / should return edgekit service info", async () => {
+      const res = await app.request("/", {}, mockEnv);
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as any;
+      expect(body.status).toBe("running");
+      expect(body.name).toBe("edgekit-auth");
+      expect(body.engine).toBe("better-auth");
+    });
+
+    it("GET /health should return healthy status", async () => {
+      const res = await app.request("/health", {}, mockEnv);
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as any;
+      expect(body.status).toBe("healthy");
+    });
+
+    it("GET /.well-known/jwks.json should forward to Better Auth JWKS", async () => {
+      const res = await app.request("/.well-known/jwks.json", {}, mockEnv);
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as any;
+      expect(body.keys).toBeDefined();
+      expect(Array.isArray(body.keys)).toBe(true);
+    });
+
+    it("GET /api/auth/jwks should return JWKS keys", async () => {
+      const res = await app.request("/api/auth/jwks", {}, mockEnv);
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as any;
+      expect(body.keys).toBeDefined();
+    });
+
+    it("GET /api/auth/open-api/generate-schema should return auto-generated OpenAPI specification", async () => {
+      const res = await app.request("/api/auth/open-api/generate-schema", {}, mockEnv);
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as any;
+      expect(body.openapi).toBeDefined();
+      expect(body.paths).toBeDefined();
+      expect(body.paths["/sign-in/email"]).toBeDefined();
+      expect(body.paths["/sign-up/email"]).toBeDefined();
+    });
+
+    it("GET /docs should serve Swagger UI interface", async () => {
+      const res = await app.request("/docs", {}, mockEnv);
+      expect(res.status).toBe(200);
+      const html = await res.text();
+      expect(html).toContain("swagger-ui");
+    });
   });
 
-  it("GET /.well-known/jwks.json should return public JWKS", async () => {
-    const res = await app.request("/.well-known/jwks.json", {}, mockEnv);
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as any;
-    expect(body.keys).toBeDefined();
-    expect(body.keys.length).toBeGreaterThan(0);
-  });
+  describe("Email & Password Authentication", () => {
+    const testUser = {
+      email: "novo.usuario@exemplo.com",
+      password: "SenhaSuperSegura123!",
+      name: "Usuario Teste",
+    };
 
-  it("GET /.well-known/openid-configuration should return discovery document", async () => {
-    const res = await app.request("/.well-known/openid-configuration", {}, mockEnv);
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as any;
-    expect(body.issuer).toBe("https://auth.local");
-    expect(body.jwks_uri).toBe("http://localhost:8787/.well-known/jwks.json");
-  });
-
-  it("GET /doc should return OpenAPI 3.0 specification", async () => {
-    const res = await app.request("/doc", {}, mockEnv);
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as any;
-    expect(body.openapi).toBe("3.0.3");
-    expect(body.info.title).toContain("Hono Auth");
-  });
-
-  it("GET /v1/client/handshake without auth should return unauthenticated state", async () => {
-    const res = await app.request("/v1/client/handshake", {}, mockEnv);
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as any;
-    expect(body.user).toBeNull();
-    expect(body.session).toBeNull();
-  });
-
-  it("GET /v1/client/users/me without auth should return 401", async () => {
-    const res = await app.request("/v1/client/users/me", {}, mockEnv);
-    expect(res.status).toBe(401);
-    const body = (await res.json()) as any;
-    expect(body.errors[0].message).toBe("Authentication required");
-  });
-
-  it("GET /v1/client/sessions without auth should return 401", async () => {
-    const res = await app.request("/v1/client/sessions", {}, mockEnv);
-    expect(res.status).toBe(401);
-    const body = (await res.json()) as any;
-    expect(body.errors[0].message).toBe("Authentication required");
-  });
-
-  it("GET /v1/backend/users without key should return 401", async () => {
-    const res = await app.request("/v1/backend/users", {}, mockEnv);
-    expect(res.status).toBe(401);
-    const body = (await res.json()) as any;
-    expect(body.errors[0].message).toContain("Missing Authorization");
-  });
-
-  it("GET /v1/backend/users with wrong key should return 403", async () => {
-    const res = await app.request(
-      "/v1/backend/users",
-      {
-        headers: {
-          Authorization: "Bearer wrong_key",
+    it("POST /api/auth/sign-up/email should register a new user successfully", async () => {
+      const res = await app.request(
+        "/api/auth/sign-up/email",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(testUser),
         },
-      },
-      mockEnv
-    );
-    expect(res.status).toBe(403);
-    const body = (await res.json()) as any;
-    expect(body.errors[0].message).toContain("Invalid secret key");
+        mockEnv
+      );
+
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as any;
+      expect(body.user).toBeDefined();
+      expect(body.user.email).toBe(testUser.email);
+      expect(body.user.name).toBe(testUser.name);
+      expect(body.token).toBeDefined();
+
+      // Check cookie
+      const cookieHeader = res.headers.get("set-cookie");
+      expect(cookieHeader).toBeDefined();
+    });
+
+    it("POST /api/auth/sign-in/email should authenticate existing user", async () => {
+      // 1. Sign up first
+      await app.request(
+        "/api/auth/sign-up/email",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(testUser),
+        },
+        mockEnv
+      );
+
+      // 2. Sign in with correct password
+      const res = await app.request(
+        "/api/auth/sign-in/email",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            email: testUser.email,
+            password: testUser.password,
+          }),
+        },
+        mockEnv
+      );
+
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as any;
+      expect(body.user.email).toBe(testUser.email);
+      expect(body.token).toBeDefined();
+    });
+
+    it("POST /api/auth/sign-in/email with invalid password should fail", async () => {
+      await app.request(
+        "/api/auth/sign-up/email",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(testUser),
+        },
+        mockEnv
+      );
+
+      const res = await app.request(
+        "/api/auth/sign-in/email",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            email: testUser.email,
+            password: "SenhaErrada!",
+          }),
+        },
+        mockEnv
+      );
+
+      expect(res.status).toBeGreaterThanOrEqual(400);
+    });
   });
 
-  it("GET /sign-in should return Hosted UI HTML", async () => {
-    const res = await app.request("/sign-in", {}, mockEnv);
-    expect(res.status).toBe(200);
-    const html = await res.text();
-    expect(html).toContain("<!DOCTYPE html>");
-    expect(html).toContain("Entrar na sua conta");
-    expect(html).toContain("Continuar com E-mail");
-  });
+  describe("Session Validation & Bearer Plugin", () => {
+    it("GET /api/auth/get-session without credentials should return null", async () => {
+      const res = await app.request("/api/auth/get-session", {}, mockEnv);
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as any;
+      expect(body).toBeNull();
+    });
 
-  it("GET /user-profile should return User Profile UI HTML", async () => {
-    const res = await app.request("/user-profile", {}, mockEnv);
-    expect(res.status).toBe(200);
-    const html = await res.text();
-    expect(html).toContain("<!DOCTYPE html>");
-    expect(html).toContain("Aparelhos & Sessões Conectadas");
-  });
+    it("GET /api/auth/get-session with Authorization: Bearer <token> should return session", async () => {
+      // 1. Sign up to get token
+      const signUpRes = await app.request(
+        "/api/auth/sign-up/email",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            email: "bearer@exemplo.com",
+            password: "Senha123Segura!",
+            name: "Bearer User",
+          }),
+        },
+        mockEnv
+      );
 
-  it("POST /v1/client/email/send-code with invalid email should return 400", async () => {
-    const res = await app.request(
-      "/v1/client/email/send-code",
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: "invalid-email" }),
-      },
-      mockEnv
-    );
-    expect(res.status).toBe(400);
-    const body = (await res.json()) as any;
-    expect(body.errors).toBeDefined();
+      const signUpBody = (await signUpRes.json()) as any;
+      const token = signUpBody.token;
+      expect(token).toBeDefined();
+
+      // 2. Fetch session using Bearer header
+      const sessionRes = await app.request(
+        "/api/auth/get-session",
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        },
+        mockEnv
+      );
+
+      expect(sessionRes.status).toBe(200);
+      const sessionBody = (await sessionRes.json()) as any;
+      expect(sessionBody.user).toBeDefined();
+      expect(sessionBody.user.email).toBe("bearer@exemplo.com");
+    });
   });
 });

@@ -10,7 +10,7 @@ export function createCorsMiddleware() {
       "X-Requested-With",
       "x-hono-auth-client-id",
     ],
-    exposeHeaders: ["Content-Length", "X-Total-Count"],
+    exposeHeaders: ["Content-Length", "X-Total-Count", "set-auth-token"],
     credentials: true,
     maxAge: 86400,
   });

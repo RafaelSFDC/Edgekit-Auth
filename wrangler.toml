@@ -1,4 +1,4 @@
-name = "hono-auth"
+name = "edgekit-auth"
 main = "src/index.ts"
 compatibility_date = "2024-10-01"
 compatibility_flags = ["nodejs_compat"]
@@ -6,10 +6,9 @@ compatibility_flags = ["nodejs_compat"]
 [vars]
 ENVIRONMENT = "development"
 APP_URL = "http://localhost:8787"
-JWT_ISSUER = "https://auth.local"
-JWT_AUDIENCE = "hono-auth-client"
+BETTER_AUTH_URL = "http://localhost:8787"
+BETTER_AUTH_SECRET = "super-secret-better-auth-key-min-32-chars-long-12345"
 COOKIE_SECRET = "super-secret-cookie-encryption-key-min-32-chars-long"
-# COOKIE_DOMAIN = ".yourdomain.com" # Uncomment and adjust for multi-subdomain auth
 
 [[d1_databases]]
 binding = "DB"

@@ -1,21 +1,20 @@
 import type { D1Database } from "@cloudflare/workers-types";
 import type { Database } from "@/db";
+import type { Auth } from "@/lib/auth";
 
 export interface Bindings {
   DB: D1Database;
   ENVIRONMENT?: string;
   APP_URL?: string;
+  BETTER_AUTH_SECRET?: string;
+  BETTER_AUTH_URL?: string;
   JWT_ISSUER?: string;
   JWT_AUDIENCE?: string;
   COOKIE_SECRET?: string;
   COOKIE_DOMAIN?: string;
   ADMIN_SECRET_KEY?: string;
 
-  // Key Pair for Asymmetric JWT signing (ES256)
-  JWT_PRIVATE_KEY_PEM?: string;
-  JWT_PUBLIC_KEY_PEM?: string;
-
-  // OAuth Credentials
+  // Social OAuth Credentials (Plug-and-play via .env)
   GOOGLE_CLIENT_ID?: string;
   GOOGLE_CLIENT_SECRET?: string;
   GOOGLE_REDIRECT_URI?: string;
@@ -23,6 +22,12 @@ export interface Bindings {
   GITHUB_CLIENT_ID?: string;
   GITHUB_CLIENT_SECRET?: string;
   GITHUB_REDIRECT_URI?: string;
+
+  DISCORD_CLIENT_ID?: string;
+  DISCORD_CLIENT_SECRET?: string;
+
+  MICROSOFT_CLIENT_ID?: string;
+  MICROSOFT_CLIENT_SECRET?: string;
 
   // Email Service (Resend or Cloudflare)
   RESEND_API_KEY?: string;
@@ -34,6 +39,7 @@ export interface Bindings {
 
 export interface Variables {
   db: Database;
+  auth: Auth;
   userId?: string;
   sessionId?: string;
   organizationId?: string;
