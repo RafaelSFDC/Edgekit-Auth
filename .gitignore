@@ -4,6 +4,7 @@ node_modules/
 
 # Build and Wrangler
 dist/
+dist-web/
 .wrangler/
 .mf/
 
@@ -11,6 +12,8 @@ dist/
 .env
 .env.*
 !.env.example
+.dev.vars
+.dev.vars.*
 
 # Drizzle artifacts / logs
 *.log

@@ -1,0 +1,38 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "edgekit-auth",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-02-14",
+  "compatibility_flags": ["nodejs_compat"],
+
+  // Static Assets para servir a Dashboard Web (SPA) compilada
+  "assets": {
+    "directory": "../web/dist",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": true
+  },
+
+  // Cloudflare D1 Database binding
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "hono-auth-db",
+      "database_id": "local-d1-db",
+      "migrations_dir": "drizzle/migrations"
+    }
+  ],
+
+  // Variáveis de ambiente
+  "vars": {
+    "ENVIRONMENT": "development",
+    "APP_URL": "http://localhost:8787",
+    "BETTER_AUTH_URL": "http://localhost:8787",
+    "BETTER_AUTH_SECRET": "super-secret-better-auth-key-min-32-chars-long-12345",
+    "COOKIE_SECRET": "super-secret-cookie-encryption-key-min-32-chars-long"
+  },
+
+  "observability": {
+    "enabled": true
+  }
+}

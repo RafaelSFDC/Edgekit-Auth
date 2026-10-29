@@ -6,7 +6,7 @@
 
 ## ✨ Características & Plugins Nativos
 
-- 🖥️ **Admin Console & Dashboard Navegável**: Interface visual completa inspirada em Supabase e Clerk, construída com **React + TanStack Query + Tailwind CSS**, servida nativamente no mesmo domínio via **Cloudflare Workers Static Assets**.
+- 🖥️ **Admin Console & Dashboard Navegável**: Interface visual de última geração construída com **React 19, Tailwind CSS v4, TanStack Router, TanStack Query v5, Shadcn UI (Base-Nova), i18n (pt-BR / en) e Dark/Light Mode**, servida nativamente no mesmo domínio via **Cloudflare Workers Static Assets**.
 - 🛡️ **Email & Senha com Hashing Criptográfico**: Autenticação segura com scrypt nativo, recuperação de senha e validação contra brute-force.
 - 🪪 **Passkeys / WebAuthn (`@better-auth/passkey`)**: Autenticação biométrica sem senhas (FaceID, TouchID, Windows Hello) via FIDO2.
 - 🔐 **Autenticação em Duas Etapas (2FA / TOTP)**: Códigos de 6 dígitos via Google Authenticator, 1Password, Authy e códigos de recuperação (*backup codes*).
