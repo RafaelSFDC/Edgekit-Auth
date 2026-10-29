@@ -9,6 +9,7 @@ APP_URL = "http://localhost:8787"
 JWT_ISSUER = "https://auth.local"
 JWT_AUDIENCE = "hono-auth-client"
 COOKIE_SECRET = "super-secret-cookie-encryption-key-min-32-chars-long"
+# COOKIE_DOMAIN = ".yourdomain.com" # Uncomment and adjust for multi-subdomain auth
 
 [[d1_databases]]
 binding = "DB"

@@ -1,9 +1,11 @@
 import { describe, it, expect } from "vitest";
+import * as jose from "jose";
 import {
   getSigningKeys,
   getJWKS,
   signSessionToken,
   verifySessionToken,
+  normalizePem,
 } from "@/lib/jwt";
 
 describe("JWT & JWKS Module", () => {
@@ -39,5 +41,39 @@ describe("JWT & JWKS Module", () => {
     expect(verified.email).toBe(claims.email);
     expect(verified.org_id).toBe(claims.org_id);
     expect(verified.org_role).toBe(claims.org_role);
+  });
+
+  it("should normalize PEM strings with escaped newlines and quotes", () => {
+    const raw = `"-----BEGIN PUBLIC KEY-----\\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE\\n-----END PUBLIC KEY-----\\n"`;
+    const normalized = normalizePem(raw);
+    expect(normalized).not.toContain("\\n");
+    expect(normalized).toContain("\n");
+    expect(normalized.startsWith('"')).toBe(false);
+    expect(normalized.endsWith('"')).toBe(false);
+  });
+
+  it("should successfully import and sign using PEM config with escaped newlines", async () => {
+    const { privateKey, publicKey } = await jose.generateKeyPair("ES256", {
+      extractable: true,
+    });
+    const privPem = (await jose.exportPKCS8(privateKey)).replace(/\n/g, "\\n");
+    const pubPem = (await jose.exportSPKI(publicKey)).replace(/\n/g, "\\n");
+
+    const config = {
+      privateKeyPem: privPem,
+      publicKeyPem: pubPem,
+      issuer: "https://auth.custom.com",
+      audience: "test-client",
+    };
+
+    const token = await signSessionToken(
+      { sub: "u_custom", sid: "s_custom" },
+      config,
+      "5m"
+    );
+
+    const verified = await verifySessionToken(token, config);
+    expect(verified.sub).toBe("u_custom");
+    expect(verified.iss).toBe("https://auth.custom.com");
   });
 });

@@ -8,6 +8,7 @@ export interface Bindings {
   JWT_ISSUER?: string;
   JWT_AUDIENCE?: string;
   COOKIE_SECRET?: string;
+  COOKIE_DOMAIN?: string;
   ADMIN_SECRET_KEY?: string;
 
   // Key Pair for Asymmetric JWT signing (ES256)

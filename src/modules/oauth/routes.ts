@@ -4,8 +4,8 @@ import { HTTPException } from "hono/http-exception";
 import type { AppContext } from "@/types/env";
 import { createGoogleProvider, createGitHubProvider, type NormalizedProfile } from "@/lib/oauth";
 import { AuthService } from "@/services/auth.service";
-
 import { parseClientInfo } from "@/lib/client-info";
+import { setSessionCookies } from "@/lib/cookies";
 
 export const oauthRoutes = new Hono<AppContext>();
 
@@ -168,22 +168,11 @@ oauthRoutes.get("/v1/client/oauth/:provider/callback", async (c) => {
     jwtConfig
   );
 
-  // Set session JWT cookie (short-lived: 5 mins)
-  setCookie(c, "__session", result.token, {
-    maxAge: 300,
-    path: "/",
-    httpOnly: true,
-    secure: isSecure,
-    sameSite: "Lax",
-  });
-
-  // Set refresh token cookie (30 days)
-  setCookie(c, "__refresh", `${result.session.id}:${result.refreshToken}`, {
-    maxAge: 30 * 86400,
-    path: "/",
-    httpOnly: true,
-    secure: isSecure,
-    sameSite: "Lax",
+  // Set session and refresh cookies (honors COOKIE_DOMAIN if set)
+  setSessionCookies(c, {
+    sessionToken: result.token,
+    refreshToken: result.refreshToken,
+    sessionId: result.session.id,
   });
 
   if (redirectUrl) {

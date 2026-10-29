@@ -1,5 +1,4 @@
 import { Hono } from "hono";
-import { getCookie, setCookie, deleteCookie } from "hono/cookie";
 import { HTTPException } from "hono/http-exception";
 import { eq } from "drizzle-orm";
 import type { AppContext } from "@/types/env";
@@ -7,6 +6,11 @@ import { users, sessions, identities } from "@/db/schema";
 import { AuthService } from "@/services/auth.service";
 import { OrgService } from "@/services/org.service";
 import { clientAuth } from "@/middlewares/client-auth";
+import {
+  setSessionCookies,
+  clearSessionCookies,
+  getRefreshCookie,
+} from "@/lib/cookies";
 
 export const clientRoutes = new Hono<AppContext>();
 
@@ -72,7 +76,7 @@ clientRoutes.post("/v1/client/sessions/:id/touch", async (c) => {
   let rawRefreshToken: string | undefined;
 
   // 1. Try reading from cookie (__refresh format: "sessionId:rawRefreshToken")
-  const refreshCookie = getCookie(c, "__refresh");
+  const refreshCookie = getRefreshCookie(c);
   if (refreshCookie) {
     const [cSessionId, cToken] = refreshCookie.split(":");
     if (cSessionId === sessionId) {
@@ -103,8 +107,6 @@ clientRoutes.post("/v1/client/sessions/:id/touch", async (c) => {
     privateKeyPem: c.env.JWT_PRIVATE_KEY_PEM,
   };
 
-  const isSecure = c.env.ENVIRONMENT !== "development";
-
   const result = await AuthService.refreshSession(
     c.get("db"),
     sessionId,
@@ -112,21 +114,11 @@ clientRoutes.post("/v1/client/sessions/:id/touch", async (c) => {
     jwtConfig
   );
 
-  // Update cookies
-  setCookie(c, "__session", result.token, {
-    maxAge: 300,
-    path: "/",
-    httpOnly: true,
-    secure: isSecure,
-    sameSite: "Lax",
-  });
-
-  setCookie(c, "__refresh", `${sessionId}:${result.newRefreshToken}`, {
-    maxAge: 30 * 86400,
-    path: "/",
-    httpOnly: true,
-    secure: isSecure,
-    sameSite: "Lax",
+  // Update cookies (respects COOKIE_DOMAIN if set)
+  setSessionCookies(c, {
+    sessionToken: result.token,
+    refreshToken: result.newRefreshToken,
+    sessionId,
   });
 
   return c.json({
@@ -142,8 +134,7 @@ clientRoutes.post("/v1/client/sessions/:id/remove", async (c) => {
   const sessionId = c.req.param("id");
   await AuthService.revokeSession(c.get("db"), sessionId);
 
-  deleteCookie(c, "__session", { path: "/" });
-  deleteCookie(c, "__refresh", { path: "/" });
+  clearSessionCookies(c);
 
   return c.json({
     id: sessionId,

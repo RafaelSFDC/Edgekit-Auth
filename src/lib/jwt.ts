@@ -22,6 +22,20 @@ let cachedPublicKey: jose.KeyLike | null = null;
 let cachedJWKS: jose.JSONWebKeySet | null = null;
 const DEFAULT_KID = "key_hono_auth_default";
 
+export function normalizePem(pem: string): string {
+  let cleaned = pem.trim();
+  if (
+    (cleaned.startsWith('"') && cleaned.endsWith('"')) ||
+    (cleaned.startsWith("'") && cleaned.endsWith("'"))
+  ) {
+    cleaned = cleaned.slice(1, -1);
+  }
+  if (cleaned.includes("\\n")) {
+    cleaned = cleaned.replace(/\\n/g, "\n");
+  }
+  return cleaned;
+}
+
 export async function getSigningKeys(config?: KeyPairConfig): Promise<{
   privateKey: jose.KeyLike;
   publicKey: jose.KeyLike;
@@ -31,8 +45,10 @@ export async function getSigningKeys(config?: KeyPairConfig): Promise<{
   }
 
   if (config?.privateKeyPem && config?.publicKeyPem) {
-    cachedPrivateKey = await jose.importPKCS8(config.privateKeyPem, "ES256");
-    cachedPublicKey = await jose.importSPKI(config.publicKeyPem, "ES256");
+    const priv = normalizePem(config.privateKeyPem);
+    const pub = normalizePem(config.publicKeyPem);
+    cachedPrivateKey = await jose.importPKCS8(priv, "ES256");
+    cachedPublicKey = await jose.importSPKI(pub, "ES256");
     return { privateKey: cachedPrivateKey, publicKey: cachedPublicKey };
   }
 

@@ -58,15 +58,18 @@ cd hono-auth
 pnpm install
 ```
 
-### 2. Configurar Variáveis de Ambiente
+### 2. Configurar Variáveis de Ambiente e Chaves Criptográficas
 
-Copie o arquivo de exemplo:
+Gere o par de chaves assimétricas ECDSA (`ES256`) e inicialize seu arquivo `.env`:
 
 ```bash
-cp .env.example .env
+pnpm generate-keys
 ```
 
-Configure as credenciais (opcionais para desenvolvimento):
+> Esse comando cria ou atualiza seu arquivo `.env` injetando chaves `JWT_PRIVATE_KEY_PEM` e `JWT_PUBLIC_KEY_PEM` seguras e prontas para uso.
+
+Configure as credenciais adicionais em `.env` (opcionais para desenvolvimento):
+- `COOKIE_DOMAIN`: Domínio compartilhado para autenticar subdomínios (ex: `.seusite.com`). Deixe vazio para `localhost`.
 - `GOOGLE_CLIENT_ID` e `GOOGLE_CLIENT_SECRET`
 - `GITHUB_CLIENT_ID` e `GITHUB_CLIENT_SECRET`
 - `RESEND_API_KEY` (Se não informado, o código OTP e Magic Link serão impressos no terminal para teste instantâneo)

@@ -1,11 +1,11 @@
 import { Hono } from "hono";
-import { setCookie } from "hono/cookie";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 import type { AppContext } from "@/types/env";
 import { AuthService } from "@/services/auth.service";
 import { sendAuthEmail } from "@/lib/email";
 import { parseClientInfo } from "@/lib/client-info";
+import { setSessionCookies } from "@/lib/cookies";
 
 export const emailAuthRoutes = new Hono<AppContext>();
 
@@ -98,22 +98,10 @@ emailAuthRoutes.post("/v1/client/email/verify-code", async (c) => {
     jwtConfig
   );
 
-  const isSecure = c.env.ENVIRONMENT !== "development";
-
-  setCookie(c, "__session", result.token, {
-    maxAge: 300,
-    path: "/",
-    httpOnly: true,
-    secure: isSecure,
-    sameSite: "Lax",
-  });
-
-  setCookie(c, "__refresh", `${result.session.id}:${result.refreshToken}`, {
-    maxAge: 30 * 86400,
-    path: "/",
-    httpOnly: true,
-    secure: isSecure,
-    sameSite: "Lax",
+  setSessionCookies(c, {
+    sessionToken: result.token,
+    refreshToken: result.refreshToken,
+    sessionId: result.session.id,
   });
 
   return c.json({
@@ -163,22 +151,10 @@ emailAuthRoutes.get("/v1/client/email/verify-link", async (c) => {
     jwtConfig
   );
 
-  const isSecure = c.env.ENVIRONMENT !== "development";
-
-  setCookie(c, "__session", result.token, {
-    maxAge: 300,
-    path: "/",
-    httpOnly: true,
-    secure: isSecure,
-    sameSite: "Lax",
-  });
-
-  setCookie(c, "__refresh", `${result.session.id}:${result.refreshToken}`, {
-    maxAge: 30 * 86400,
-    path: "/",
-    httpOnly: true,
-    secure: isSecure,
-    sameSite: "Lax",
+  setSessionCookies(c, {
+    sessionToken: result.token,
+    refreshToken: result.refreshToken,
+    sessionId: result.session.id,
   });
 
   if (redirectUrl) {

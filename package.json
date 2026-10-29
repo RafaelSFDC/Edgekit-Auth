@@ -1,6 +1,7 @@
 {
   "name": "hono-auth",
   "version": "0.1.0",
+  "type": "module",
   "private": true,
   "description": "Open-source Clerk alternative backend built with Hono for Cloudflare Workers & agnostic runtimes",
   "main": "src/index.ts",
@@ -11,6 +12,7 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate:local": "wrangler d1 migrations apply hono-auth-db --local",
     "db:migrate:remote": "wrangler d1 migrations apply hono-auth-db --remote",
+    "generate-keys": "node --experimental-strip-types scripts/generate-keys.ts",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
