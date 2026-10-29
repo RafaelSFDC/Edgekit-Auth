@@ -1,0 +1,33 @@
+{
+  "name": "hono-auth",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Open-source Clerk alternative backend built with Hono for Cloudflare Workers & agnostic runtimes",
+  "main": "src/index.ts",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "build": "wrangler deploy --dry-run --outdir dist",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate:local": "wrangler d1 migrations apply hono-auth-db --local",
+    "db:migrate:remote": "wrangler d1 migrations apply hono-auth-db --remote",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@hono/swagger-ui": "^0.5.0",
+    "@hono/zod-openapi": "^0.18.4",
+    "arctic": "^3.5.0",
+    "drizzle-orm": "^0.40.0",
+    "hono": "^4.7.2",
+    "jose": "^5.10.0",
+    "zod": "^3.24.2"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250224.0",
+    "drizzle-kit": "^0.30.5",
+    "typescript": "^5.7.3",
+    "vitest": "^3.0.7",
+    "wrangler": "^3.111.0"
+  }
+}

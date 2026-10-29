@@ -1,0 +1,20 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build and Wrangler
+dist/
+.wrangler/
+.mf/
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Drizzle artifacts / logs
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db
