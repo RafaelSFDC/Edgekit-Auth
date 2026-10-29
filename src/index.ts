@@ -24,8 +24,12 @@ app.use("*", async (c, next) => {
   await next();
 });
 
-// Root & Health Check
-app.get("/", (c) => {
+// Root: Serve React SPA if browser request & ASSETS bound, otherwise return JSON status
+app.get("/", async (c) => {
+  const accept = c.req.header("accept") || "";
+  if (accept.includes("text/html") && c.env?.ASSETS) {
+    return c.env.ASSETS.fetch(c.req.raw);
+  }
   return c.json({
     name: "edgekit-auth",
     engine: "better-auth",
@@ -59,6 +63,14 @@ app.get("/docs", swaggerUI({ url: "/api/auth/open-api/generate-schema" }));
 app.all("/api/auth/*", (c) => {
   const auth = c.get("auth");
   return auth.handler(c.req.raw);
+});
+
+// SPA Static Assets Fallback for all other frontend routes
+app.get("*", async (c) => {
+  if (c.env?.ASSETS) {
+    return c.env.ASSETS.fetch(c.req.raw);
+  }
+  return c.notFound();
 });
 
 export default app;

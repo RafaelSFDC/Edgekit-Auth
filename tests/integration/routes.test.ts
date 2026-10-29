@@ -203,4 +203,70 @@ describe("Edgekit Auth (Better Auth) Integration Tests", () => {
       expect(sessionBody.user.email).toBe("bearer@exemplo.com");
     });
   });
+
+  describe("Workers Static Assets & Dashboard SPA Routing", () => {
+    it("GET / with HTML Accept header should forward to ASSETS fetcher if available", async () => {
+      let assetFetched = false;
+      const envWithAssets: Bindings = {
+        ...mockEnv,
+        ASSETS: {
+          fetch: async (req: Request) => {
+            assetFetched = true;
+            return new Response("<!doctype html><html><body>Dashboard</body></html>", {
+              status: 200,
+              headers: { "Content-Type": "text/html" },
+            });
+          },
+        } as any,
+      };
+
+      const res = await app.request(
+        "/",
+        {
+          headers: { Accept: "text/html,application/xhtml+xml" },
+        },
+        envWithAssets
+      );
+
+      expect(assetFetched).toBe(true);
+      expect(res.status).toBe(200);
+      const html = await res.text();
+      expect(html).toContain("Dashboard");
+    });
+
+    it("GET / without HTML Accept header should return API JSON info", async () => {
+      const res = await app.request("/", {}, mockEnv);
+      expect(res.status).toBe(200);
+      const json = (await res.json()) as any;
+      expect(json.status).toBe("running");
+      expect(json.name).toBe("edgekit-auth");
+    });
+
+    it("GET /users SPA client route should forward to ASSETS fetcher", async () => {
+      let requestedUrl = "";
+      const envWithAssets: Bindings = {
+        ...mockEnv,
+        ASSETS: {
+          fetch: async (req: Request) => {
+            requestedUrl = req.url;
+            return new Response("<!doctype html><html><body>React App</body></html>", {
+              status: 200,
+              headers: { "Content-Type": "text/html" },
+            });
+          },
+        } as any,
+      };
+
+      const res = await app.request("/users", {}, envWithAssets);
+      expect(res.status).toBe(200);
+      expect(requestedUrl).toContain("/users");
+      const html = await res.text();
+      expect(html).toContain("React App");
+    });
+
+    it("GET /unknown-route without ASSETS binding should return 404", async () => {
+      const res = await app.request("/non-existent-page", {}, mockEnv);
+      expect(res.status).toBe(404);
+    });
+  });
 });

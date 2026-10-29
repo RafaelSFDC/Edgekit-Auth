@@ -1,9 +1,10 @@
-import type { D1Database } from "@cloudflare/workers-types";
+import type { D1Database, Fetcher } from "@cloudflare/workers-types";
 import type { Database } from "@/db";
 import type { Auth } from "@/lib/auth";
 
 export interface Bindings {
   DB: D1Database;
+  ASSETS?: Fetcher;
   ENVIRONMENT?: string;
   APP_URL?: string;
   BETTER_AUTH_SECRET?: string;

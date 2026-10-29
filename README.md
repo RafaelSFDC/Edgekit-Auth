@@ -6,6 +6,7 @@
 
 ## ✨ Características & Plugins Nativos
 
+- 🖥️ **Admin Console & Dashboard Navegável**: Interface visual completa inspirada em Supabase e Clerk, construída com **React + TanStack Query + Tailwind CSS**, servida nativamente no mesmo domínio via **Cloudflare Workers Static Assets**.
 - 🛡️ **Email & Senha com Hashing Criptográfico**: Autenticação segura com validação robusta de senhas e proteção contra timing attacks.
 - 🪪 **Passkeys / WebAuthn (`@better-auth/passkey`)**: Autenticação biométrica sem senhas (FaceID, TouchID, Windows Hello) via FIDO2.
 - 🔐 **Autenticação em Duas Etapas (2FA / TOTP)**: Códigos de 6 dígitos via Google Authenticator, 1Password, Authy e códigos de recuperação (*backup codes*).
@@ -81,13 +82,21 @@ Configure seu segredo de criptografia:
 pnpm db:migrate:local
 ```
 
-### 4. Iniciar o Servidor de Desenvolvimento
+### 4. Iniciar o Ambiente de Desenvolvimento
+
+Você pode iniciar o backend (Hono/Wrangler) e o frontend (Dashboard React) em paralelo:
 
 ```bash
+# Inicia a API (porta 8787) e o Dashboard (porta 5173 com proxy) concorrentemente:
 pnpm dev
+
+# Ou inicie separadamente se preferir:
+pnpm dev:api   # Cloudflare Worker / Hono
+pnpm dev:web   # React + Vite Dashboard
 ```
 
 Acesse no navegador:
+- 🖥️ **Admin Console (Dashboard)**: `http://localhost:5173` (ou `http://localhost:8787/` em produção)
 - 📖 **Swagger UI Interativo**: `http://localhost:8787/docs`
 - 🔑 **Chaves Públicas JWKS**: `http://localhost:8787/.well-known/jwks.json`
 - 📜 **Especificação OpenAPI JSON**: `http://localhost:8787/api/auth/open-api/generate-schema`

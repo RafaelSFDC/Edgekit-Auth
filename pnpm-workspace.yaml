@@ -1,4 +1,10 @@
+packages:
+  - "."
+  - "dashboard"
+
 allowBuilds:
   esbuild: true
   sharp: true
   workerd: true
+  "@prisma/client": true
+  better-sqlite3: true
