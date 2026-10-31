@@ -125,4 +125,160 @@ describe("Billing & Subscription Engine Integration Tests", () => {
     expect(subData.status).toBe("active");
     expect(subData.plan.slug).toBe("starter");
   });
+
+  it("should reject webhook request if STRIPE_WEBHOOK_SECRET is set and signature is invalid", async () => {
+    const envWithSecret = {
+      ...mockEnv,
+      STRIPE_WEBHOOK_SECRET: "whsec_test_secret_key_12345",
+    };
+
+    const webhookRes = await app.request(
+      "/api/billing/webhook",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "stripe-signature": "t=12345,v1=invalid_signature_hex",
+        },
+        body: JSON.stringify({
+          type: "checkout.session.completed",
+          data: { object: {} },
+        }),
+      },
+      envWithSecret
+    );
+
+    expect(webhookRes.status).toBe(400);
+    const body = (await webhookRes.json()) as any;
+    expect(body.error).toBe("InvalidWebhookSignature");
+  });
+
+  it("should process stripe webhooks for checkout completion, subscription update, and cancellation", async () => {
+    // 1. Create a Pro Plan
+    await app.request(
+      "/api/billing/admin/plans",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          cookie: adminCookie,
+        },
+        body: JSON.stringify({
+          name: "Pro Tier",
+          slug: "pro-tier",
+          stripePriceIdMonthly: "price_monthly_pro_123",
+          priceMonthly: 4900,
+          features: ["pdf_export", "priority_support"],
+        }),
+      },
+      mockEnv
+    );
+
+    // 2. Simulate Stripe Webhook: checkout.session.completed
+    const checkoutEvent = {
+      type: "checkout.session.completed",
+      data: {
+        object: {
+          customer: "cus_real_stripe_999",
+          subscription: "sub_real_stripe_999",
+          metadata: {
+            targetType: "user",
+            targetId: "user_customer_123",
+            planId: "plan_pro-tier",
+          },
+        },
+      },
+    };
+
+    const webhookRes1 = await app.request(
+      "/api/billing/webhook",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(checkoutEvent),
+      },
+      mockEnv
+    );
+    expect(webhookRes1.status).toBe(200);
+
+    // 3. Verify subscription is listed in admin subscriptions
+    const subsRes = await app.request(
+      "/api/billing/admin/subscriptions",
+      {
+        method: "GET",
+        headers: { cookie: adminCookie },
+      },
+      mockEnv
+    );
+    expect(subsRes.status).toBe(200);
+    const subsData = (await subsRes.json()) as any;
+    const found = subsData.subscriptions.find(
+      (s: any) => s.subscription.targetId === "user_customer_123"
+    );
+    expect(found).toBeDefined();
+    expect(found.subscription.status).toBe("active");
+    expect(found.subscription.stripeCustomerId).toBe("cus_real_stripe_999");
+
+    // 4. Simulate Stripe Webhook: customer.subscription.updated (cancel_at_period_end)
+    const updateEvent = {
+      type: "customer.subscription.updated",
+      data: {
+        object: {
+          id: "sub_real_stripe_999",
+          customer: "cus_real_stripe_999",
+          status: "active",
+          cancel_at_period_end: true,
+          current_period_end: Math.floor(Date.now() / 1000) + 86400 * 30,
+        },
+      },
+    };
+
+    const webhookRes2 = await app.request(
+      "/api/billing/webhook",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(updateEvent),
+      },
+      mockEnv
+    );
+    expect(webhookRes2.status).toBe(200);
+
+    // 5. Simulate Stripe Webhook: customer.subscription.deleted (canceled)
+    const deleteEvent = {
+      type: "customer.subscription.deleted",
+      data: {
+        object: {
+          id: "sub_real_stripe_999",
+          customer: "cus_real_stripe_999",
+        },
+      },
+    };
+
+    const webhookRes3 = await app.request(
+      "/api/billing/webhook",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(deleteEvent),
+      },
+      mockEnv
+    );
+    expect(webhookRes3.status).toBe(200);
+
+    // 6. Verify subscription is now marked canceled
+    const subsResAfter = await app.request(
+      "/api/billing/admin/subscriptions",
+      {
+        method: "GET",
+        headers: { cookie: adminCookie },
+      },
+      mockEnv
+    );
+    const subsDataAfter = (await subsResAfter.json()) as any;
+    const canceledSub = subsDataAfter.subscriptions.find(
+      (s: any) => s.subscription.targetId === "user_customer_123"
+    );
+    expect(canceledSub.subscription.status).toBe("canceled");
+  });
 });

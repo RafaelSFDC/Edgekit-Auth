@@ -198,6 +198,40 @@ const { data: org } = await authClient.organization.create({
 
 ---
 
+## 🛡️ Como Validar Tokens no Backend (Validação Offline 0ms via JWKS)
+
+No backend da sua aplicação (Node.js, Express, Fastify, Hono, NestJS), valide os tokens JWT dos seus usuários **100% offline via JWKS assimétrico (EdDSA / RS256), com zero requisições ao banco de dados D1**:
+
+```typescript
+import { createRemoteJWKSet, jwtVerify } from "jose";
+
+// Carrega as chaves públicas uma única vez e mantém cache em memória
+const JWKS = createRemoteJWKSet(
+  new URL("http://localhost:8787/.well-known/jwks.json")
+);
+
+export async function authenticateToken(bearerToken: string) {
+  // Validação criptográfica instantânea (0ms de latência de banco)
+  const { payload } = await jwtVerify(bearerToken, JWKS, {
+    issuer: "http://localhost:8787",
+  });
+
+  return {
+    userId: payload.sub,
+    email: payload.email,
+    roles: payload.roles as string[],                  // ex: ["admin", "editor"]
+    permissions: payload.permissions as string[],      // ex: ["posts:publish", "invoices:view"]
+    orgId: payload.org_id as string | null,
+    orgRole: payload.org_role as string | null,
+    orgPermissions: payload.org_permissions as string[],
+    plan: payload.plan as string,                      // ex: "pro", "starter", "free"
+    entitlements: payload.entitlements as string[],    // ex: ["analytics_pro", "export_pdf"]
+    limits: payload.limits as Record<string, any>,     // ex: { seats: 10, storage_gb: 50 }
+  };
+}
+```
+
+---
 ## 🧪 Testes Automatizados & Qualidade de Código
 
 ```bash

@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach } from "vitest";
 import app from "@/index";
 import { createMockD1 } from "../helpers/mock-d1";
 import type { Bindings } from "@/types/env";
+import { createLocalJWKSet, jwtVerify } from "jose";
 
 describe("RBAC & Permissions Management Integration Tests", () => {
   let mockEnv: Bindings;
@@ -96,5 +97,41 @@ describe("RBAC & Permissions Management Integration Tests", () => {
     expect(found).toBeDefined();
     expect(found.permissions).toContain("invoices:create");
     expect(found.permissions).toContain("invoices:view");
+  });
+
+  it("should issue JWT with enriched payload (roles, permissions, plan, entitlements, limits) and verify offline via JWKS in 0ms", async () => {
+    // 1. Fetch JWKS public key set from /.well-known/jwks.json
+    const jwksRes = await app.request("/.well-known/jwks.json", { method: "GET" }, mockEnv);
+    expect(jwksRes.status).toBe(200);
+    const jwksData = (await jwksRes.json()) as any;
+    expect(jwksData.keys).toBeDefined();
+    expect(Array.isArray(jwksData.keys)).toBe(true);
+
+    // 2. Fetch signed JWT session token for authenticated admin
+    const tokenRes = await app.request(
+      "/api/auth/token",
+      {
+        method: "GET",
+        headers: { cookie: adminCookie },
+      },
+      mockEnv
+    );
+    expect(tokenRes.status).toBe(200);
+    const tokenData = (await tokenRes.json()) as any;
+    expect(tokenData.token).toBeDefined();
+
+    // 3. Offline Verification via jose with Zero Database Calls (0ms)
+    const localJWKS = createLocalJWKSet(jwksData);
+    const { payload } = await jwtVerify(tokenData.token, localJWKS);
+
+    // 4. Validate rich claims
+    expect(payload.sub).toBeDefined();
+    expect(payload.email).toBe("rbacadmin@edgekit.dev");
+    expect(payload.isSuperAdmin).toBe(true);
+    expect(Array.isArray(payload.roles)).toBe(true);
+    expect(Array.isArray(payload.permissions)).toBe(true);
+    expect(typeof payload.plan).toBe("string");
+    expect(Array.isArray(payload.entitlements)).toBe(true);
+    expect(typeof payload.limits).toBe("object");
   });
 });

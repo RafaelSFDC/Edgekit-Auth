@@ -22,7 +22,7 @@ adminRoutes.use("*", async (c, next) => {
 
   if (token && (token.startsWith("sk_") || token.startsWith("ek_"))) {
     const apiKeyRecord = await verifyApiKey(db, token);
-    if (apiKeyRecord && apiKeyRecord.role === "admin") {
+    if (apiKeyRecord && apiKeyRecord.keyType === "secret" && apiKeyRecord.role === "admin") {
       c.set("userId", apiKeyRecord.createdById || "system");
       c.set("apiKeyId", apiKeyRecord.id);
       return next();

@@ -99,6 +99,7 @@ export async function verifyEdgekitToken(bearerToken: string) {
     orgPermissions: payload.org_permissions as string[],
     plan: payload.plan as string,
     entitlements: payload.entitlements as string[],
+    limits: payload.limits as Record<string, any>,
   };
 }`;
 

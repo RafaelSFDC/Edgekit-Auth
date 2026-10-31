@@ -199,3 +199,56 @@ export async function createBillingPortalSession(
     isSimulated: true,
   };
 }
+
+/**
+ * Validates Stripe Webhook Signature header (t=...,v1=...) using Web Crypto HMAC-SHA256.
+ * Zero external dependencies, 100% compliant with Cloudflare Workers edge runtime.
+ */
+export async function verifyStripeWebhookSignature(
+  rawBody: string,
+  signatureHeader: string | null | undefined,
+  secret: string,
+  toleranceSeconds = 300
+): Promise<boolean> {
+  if (!signatureHeader || !secret) return false;
+
+  const parts = signatureHeader.split(",");
+  let timestamp = -1;
+  const signatures: string[] = [];
+
+  for (const part of parts) {
+    const [key, value] = part.trim().split("=");
+    if (key === "t") {
+      timestamp = parseInt(value, 10);
+    } else if (key === "v1") {
+      signatures.push(value);
+    }
+  }
+
+  if (timestamp === -1 || signatures.length === 0 || isNaN(timestamp)) {
+    return false;
+  }
+
+  // Tolerance check (default 5 minutes)
+  const now = Math.floor(Date.now() / 1000);
+  if (Math.abs(now - timestamp) > toleranceSeconds) {
+    return false;
+  }
+
+  const signedPayload = `${timestamp}.${rawBody}`;
+  const enc = new TextEncoder();
+  const key = await crypto.subtle.importKey(
+    "raw",
+    enc.encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"]
+  );
+
+  const signatureBytes = await crypto.subtle.sign("HMAC", key, enc.encode(signedPayload));
+  const computedHex = Array.from(new Uint8Array(signatureBytes))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+
+  return signatures.some((sig) => sig.toLowerCase() === computedHex.toLowerCase());
+}

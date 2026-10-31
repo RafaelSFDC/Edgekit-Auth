@@ -521,6 +521,7 @@ export function createAuth(env: Bindings, _request?: Request) {
             let orgPermissions: string[] = [];
             let activePlan = "free";
             let activeEntitlements: string[] = [];
+            let activeLimits: Record<string, any> = {};
 
             try {
               if (orgId) {
@@ -605,10 +606,44 @@ export function createAuth(env: Bindings, _request?: Request) {
                     try {
                       activeEntitlements = JSON.parse(sub.billing_plan.features || "[]");
                     } catch {}
+                    try {
+                      activeLimits = JSON.parse(sub.billing_plan.limits || "{}");
+                    } catch {}
                   }
                 }
               }
             } catch {}
+
+            // Check for user-level B2C subscription if no active org subscription was found
+            if (activePlan === "free" && userId) {
+              try {
+                const [userSub] = await db
+                  .select()
+                  .from(schema.billingSubscription)
+                  .innerJoin(
+                    schema.billingPlan,
+                    eq(schema.billingSubscription.planId, schema.billingPlan.id)
+                  )
+                  .where(
+                    and(
+                      eq(schema.billingSubscription.targetType, "user"),
+                      eq(schema.billingSubscription.targetId, userId),
+                      eq(schema.billingSubscription.status, "active")
+                    )
+                  )
+                  .limit(1);
+
+                if (userSub) {
+                  activePlan = userSub.billing_plan.slug;
+                  try {
+                    activeEntitlements = JSON.parse(userSub.billing_plan.features || "[]");
+                  } catch {}
+                  try {
+                    activeLimits = JSON.parse(userSub.billing_plan.limits || "{}");
+                  } catch {}
+                }
+              } catch {}
+            }
 
             let globalRoles: string[] = [];
             let globalPermissions: string[] = [];
@@ -677,6 +712,7 @@ export function createAuth(env: Bindings, _request?: Request) {
               permissions: globalPermissions,
               plan: activePlan,
               entitlements: activeEntitlements,
+              limits: activeLimits,
             };
           },
         },

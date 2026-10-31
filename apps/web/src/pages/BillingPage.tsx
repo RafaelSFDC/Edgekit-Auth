@@ -47,6 +47,9 @@ export const BillingPage: React.FC = () => {
     priceYearly: 0,
     currency: 'usd',
     features: '',
+    stripeProductId: '',
+    stripePriceIdMonthly: '',
+    stripePriceIdYearly: '',
   });
 
   // 1. Fetch plans
@@ -82,6 +85,9 @@ export const BillingPage: React.FC = () => {
           ...payload,
           priceMonthly: Number(payload.priceMonthly) * 100, // convert to cents
           priceYearly: Number(payload.priceYearly) * 100,
+          stripeProductId: payload.stripeProductId?.trim() || null,
+          stripePriceIdMonthly: payload.stripePriceIdMonthly?.trim() || null,
+          stripePriceIdYearly: payload.stripePriceIdYearly?.trim() || null,
           features: payload.features
             .split(',')
             .map((f: string) => f.trim())
@@ -106,6 +112,9 @@ export const BillingPage: React.FC = () => {
         priceYearly: 0,
         currency: 'usd',
         features: '',
+        stripeProductId: '',
+        stripePriceIdMonthly: '',
+        stripePriceIdYearly: '',
       });
     },
     onError: (err: any) => {
@@ -355,6 +364,28 @@ export const BillingPage: React.FC = () => {
                 value={newPlan.features}
                 onChange={(e) => setNewPlan({ ...newPlan, features: e.target.value })}
               />
+            </div>
+
+            <div className="pt-2 border-t space-y-2">
+              <p className="text-xs font-semibold text-muted-foreground">Integração Stripe (Opcional)</p>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <Label className="text-xs">Stripe Price ID (Mensal)</Label>
+                  <Input
+                    placeholder="price_1N..."
+                    value={newPlan.stripePriceIdMonthly}
+                    onChange={(e) => setNewPlan({ ...newPlan, stripePriceIdMonthly: e.target.value })}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Stripe Price ID (Anual)</Label>
+                  <Input
+                    placeholder="price_1N..."
+                    value={newPlan.stripePriceIdYearly}
+                    onChange={(e) => setNewPlan({ ...newPlan, stripePriceIdYearly: e.target.value })}
+                  />
+                </div>
+              </div>
             </div>
           </div>
           <DialogFooter>

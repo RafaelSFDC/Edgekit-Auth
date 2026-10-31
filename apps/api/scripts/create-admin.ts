@@ -98,7 +98,7 @@ async function main() {
       process.exit(1);
     }
     console.log(`Rebaixando '${email}' para 'user'...`);
-    runD1Command(`UPDATE user SET role = 'user' WHERE id = '${existingUser.id}';`, isRemote);
+    runD1Command(`UPDATE user SET role = 'user', is_super_admin = 0 WHERE id = '${existingUser.id}';`, isRemote);
     console.log(`✅ Sucesso! O usuário '${email}' agora possui papel 'user'.`);
     return;
   }
@@ -135,9 +135,9 @@ async function main() {
     }
 
     console.log(`Promovendo '${email}' de '${existingUser.role || "user"}' para 'admin'...`);
-    const updateSql = `UPDATE user SET role = 'admin' WHERE id = '${existingUser.id}';`;
+    const updateSql = `UPDATE user SET role = 'admin', is_super_admin = 1 WHERE id = '${existingUser.id}';`;
     runD1Command(updateSql, isRemote);
-    console.log(`✅ Sucesso! O usuário '${email}' agora é um Administrador (role='admin').`);
+    console.log(`✅ Sucesso! O usuário '${email}' agora é um Administrador (role='admin', is_super_admin=1).`);
     return;
   }
 
@@ -156,7 +156,7 @@ async function main() {
   const hashedPassword = await hashPassword(password);
 
   // Insert User
-  const insertUserSql = `INSERT INTO user (id, name, email, email_verified, role, banned, created_at, updated_at) VALUES ('${userId}', '${name}', '${email.toLowerCase()}', 1, 'admin', 0, ${now}, ${now});`;
+  const insertUserSql = `INSERT INTO user (id, name, email, email_verified, role, is_super_admin, banned, created_at, updated_at) VALUES ('${userId}', '${name}', '${email.toLowerCase()}', 1, 'admin', 1, 0, ${now}, ${now});`;
   runD1Command(insertUserSql, isRemote);
 
   // Insert Account with password (account_id must match userId in Better Auth for credential provider)

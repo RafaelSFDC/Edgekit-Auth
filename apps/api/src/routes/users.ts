@@ -31,7 +31,7 @@ async function getAuthIdentity(c: any): Promise<AuthIdentity | null> {
 
   if (token && (token.startsWith("sk_") || token.startsWith("ek_"))) {
     const apiKeyRecord = await verifyApiKey(db, token);
-    if (apiKeyRecord) {
+    if (apiKeyRecord && apiKeyRecord.keyType === "secret") {
       const targetUserId = c.req.header("x-user-id") || apiKeyRecord.createdById || "system";
       return {
         userId: targetUserId,

@@ -1,10 +1,15 @@
 import { Hono } from "hono";
 import type { AppContext } from "@/types/env";
 import * as schema from "@/db/schema";
-import { eq, and, desc } from "drizzle-orm";
-import { createBillingCheckoutSession, createBillingPortalSession } from "@/lib/billing";
+import { eq, and, desc, sql } from "drizzle-orm";
+import {
+  createBillingCheckoutSession,
+  createBillingPortalSession,
+  verifyStripeWebhookSignature,
+} from "@/lib/billing";
 import { verifyApiKey } from "@/lib/api-keys";
 import { logAuditEvent } from "@/lib/audit";
+import { dispatchWebhook } from "@/lib/webhooks";
 
 export const billingRoutes = new Hono<AppContext>();
 
@@ -180,14 +185,27 @@ billingRoutes.post("/portal", async (c) => {
 
 /**
  * POST /api/billing/webhook
- * Handles incoming Stripe Webhooks with signature validation.
+ * Handles incoming Stripe Webhooks with signature validation and subscription lifecycle.
  */
 billingRoutes.post("/webhook", async (c) => {
   const db = c.get("db");
 
   const rawBody = await c.req.text();
-  let event: any;
 
+  // Validate Stripe signature if secret is configured
+  if (c.env?.STRIPE_WEBHOOK_SECRET) {
+    const signature = c.req.header("stripe-signature");
+    const isValid = await verifyStripeWebhookSignature(
+      rawBody,
+      signature,
+      c.env.STRIPE_WEBHOOK_SECRET
+    );
+    if (!isValid) {
+      return c.json({ error: "InvalidWebhookSignature", message: "Assinatura do Stripe inválida" }, 400);
+    }
+  }
+
+  let event: any;
   try {
     event = JSON.parse(rawBody);
   } catch {
@@ -197,6 +215,7 @@ billingRoutes.post("/webhook", async (c) => {
   // Handle Stripe events
   const eventType = event.type || "unknown";
 
+  // 1. Checkout completed
   if (eventType === "checkout.session.completed") {
     const session = event.data?.object;
     const metadata = session?.metadata || {};
@@ -252,6 +271,164 @@ billingRoutes.post("/webhook", async (c) => {
         targetType,
         metadata: { planId, customerId: session.customer },
       });
+
+      if (c.env?.WEBHOOK_URL) {
+        await dispatchWebhook(c.env, {
+          event: "subscription.created",
+          data: { targetType, targetId, planId, status: "active" },
+        });
+      }
+    }
+  }
+
+  // 2. Subscription updated (plan change, status update, renewal, cancel_at_period_end)
+  if (eventType === "customer.subscription.updated") {
+    const subObj = event.data?.object;
+    if (subObj?.id) {
+      const now = new Date();
+      const currentPeriodEnd = subObj.current_period_end ? new Date(subObj.current_period_end * 1000) : null;
+      const status = subObj.status || "active";
+      const cancelAtPeriodEnd = Boolean(subObj.cancel_at_period_end);
+
+      // Check if price/plan changed
+      const priceId = subObj.items?.data?.[0]?.price?.id;
+      let newPlanId: string | null = null;
+      if (priceId) {
+        const [matchedPlan] = await db
+          .select()
+          .from(schema.billingPlan)
+          .where(
+            sql`${schema.billingPlan.stripePriceIdMonthly} = ${priceId} OR ${schema.billingPlan.stripePriceIdYearly} = ${priceId}`
+          )
+          .limit(1);
+        if (matchedPlan) {
+          newPlanId = matchedPlan.id;
+        }
+      }
+
+      const [existingSub] = await db
+        .select()
+        .from(schema.billingSubscription)
+        .where(
+          sql`${schema.billingSubscription.stripeSubscriptionId} = ${subObj.id} OR ${schema.billingSubscription.stripeCustomerId} = ${subObj.customer}`
+        )
+        .limit(1);
+
+      if (existingSub) {
+        await db
+          .update(schema.billingSubscription)
+          .set({
+            status,
+            cancelAtPeriodEnd,
+            currentPeriodEnd,
+            ...(newPlanId ? { planId: newPlanId } : {}),
+            updatedAt: now,
+          })
+          .where(eq(schema.billingSubscription.id, existingSub.id));
+
+        await logAuditEvent(db, {
+          action: "billing.subscription_updated",
+          targetId: existingSub.targetId,
+          targetType: existingSub.targetType as any,
+          metadata: { status, cancelAtPeriodEnd, planId: newPlanId || existingSub.planId },
+        });
+
+        if (c.env?.WEBHOOK_URL) {
+          await dispatchWebhook(c.env, {
+            event: "subscription.updated",
+            data: {
+              targetType: existingSub.targetType,
+              targetId: existingSub.targetId,
+              planId: newPlanId || existingSub.planId,
+              status,
+              cancelAtPeriodEnd,
+            },
+          });
+        }
+      }
+    }
+  }
+
+  // 3. Subscription deleted / canceled
+  if (eventType === "customer.subscription.deleted") {
+    const subObj = event.data?.object;
+    if (subObj?.id) {
+      const now = new Date();
+      const [existingSub] = await db
+        .select()
+        .from(schema.billingSubscription)
+        .where(
+          sql`${schema.billingSubscription.stripeSubscriptionId} = ${subObj.id} OR ${schema.billingSubscription.stripeCustomerId} = ${subObj.customer}`
+        )
+        .limit(1);
+
+      if (existingSub) {
+        await db
+          .update(schema.billingSubscription)
+          .set({
+            status: "canceled",
+            updatedAt: now,
+          })
+          .where(eq(schema.billingSubscription.id, existingSub.id));
+
+        await logAuditEvent(db, {
+          action: "billing.subscription_canceled",
+          targetId: existingSub.targetId,
+          targetType: existingSub.targetType as any,
+          metadata: { stripeSubscriptionId: subObj.id },
+        });
+
+        if (c.env?.WEBHOOK_URL) {
+          await dispatchWebhook(c.env, {
+            event: "subscription.canceled",
+            data: {
+              targetType: existingSub.targetType,
+              targetId: existingSub.targetId,
+              status: "canceled",
+            },
+          });
+        }
+      }
+    }
+  }
+
+  // 4. Invoice payment failed
+  if (eventType === "invoice.payment_failed") {
+    const invoiceObj = event.data?.object;
+    if (invoiceObj?.customer) {
+      const [existingSub] = await db
+        .select()
+        .from(schema.billingSubscription)
+        .where(eq(schema.billingSubscription.stripeCustomerId, invoiceObj.customer))
+        .limit(1);
+
+      if (existingSub) {
+        await db
+          .update(schema.billingSubscription)
+          .set({
+            status: "past_due",
+            updatedAt: new Date(),
+          })
+          .where(eq(schema.billingSubscription.id, existingSub.id));
+
+        await logAuditEvent(db, {
+          action: "billing.payment_failed",
+          targetId: existingSub.targetId,
+          targetType: existingSub.targetType as any,
+          metadata: { customerId: invoiceObj.customer },
+        });
+
+        if (c.env?.WEBHOOK_URL) {
+          await dispatchWebhook(c.env, {
+            event: "subscription.past_due",
+            data: {
+              targetType: existingSub.targetType,
+              targetId: existingSub.targetId,
+              status: "past_due",
+            },
+          });
+        }
+      }
     }
   }
 
@@ -275,7 +452,7 @@ adminBillingRoutes.use("*", async (c, next) => {
 
   if (token && (token.startsWith("sk_") || token.startsWith("ek_"))) {
     const apiKeyRecord = await verifyApiKey(db, token);
-    if (apiKeyRecord && apiKeyRecord.role === "admin") {
+    if (apiKeyRecord && apiKeyRecord.keyType === "secret" && apiKeyRecord.role === "admin") {
       return next();
     }
   }
