@@ -15,6 +15,8 @@
     "deploy": "pnpm --filter @edgekit/web build && pnpm --filter @edgekit/api deploy",
     "cf-typegen": "pnpm --filter @edgekit/api cf-typegen",
     "typecheck": "pnpm -r run typecheck",
+    "lint": "oxlint",
+    "lint:fix": "oxlint --fix",
     "test": "pnpm -r run test",
     "test:api": "pnpm --filter @edgekit/api test",
     "test:web": "pnpm --filter @edgekit/web test",
@@ -40,6 +42,10 @@
   "author": "",
   "license": "MIT",
   "devDependencies": {
-    "concurrently": "^9.1.2"
+    "@types/node": "^26.6.5",
+    "@vitejs/plugin-react": "^6.1.2",
+    "concurrently": "^9.1.2",
+    "oxc-transform-react": "^0.156.0",
+    "oxlint": "^1.90.0"
   }
 }

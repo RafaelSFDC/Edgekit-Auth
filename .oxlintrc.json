@@ -1,0 +1,44 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": ["react", "typescript", "unicorn", "oxc", "jsx-a11y", "vitest"],
+  "categories": {
+    "correctness": "warn"
+  },
+  "env": {
+    "browser": true,
+    "node": true,
+    "builtin": true
+  },
+  "globals": {
+    "caches": "readonly",
+    "fetch": "readonly",
+    "Request": "readonly",
+    "Response": "readonly",
+    "Headers": "readonly",
+    "FormData": "readonly",
+    "URL": "readonly",
+    "URLSearchParams": "readonly",
+    "WebSocket": "readonly",
+    "ReadableStream": "readonly",
+    "WritableStream": "readonly",
+    "TransformStream": "readonly",
+    "Blob": "readonly",
+    "File": "readonly",
+    "crypto": "readonly",
+    "ExecutionContext": "readonly",
+    "D1Database": "readonly"
+  },
+  "rules": {
+    "eqeqeq": "warn",
+    "no-alert": "warn",
+    "no-eval": "error",
+    "no-var": "error",
+    "prefer-const": "warn",
+    "prefer-template": "warn"
+  },
+  "ignorePatterns": [
+    "dist/**",
+    ".wrangler/**",
+    "node_modules/**"
+  ]
+}
