@@ -34,6 +34,7 @@ import { sendSMSOTP } from "@/lib/sms";
 import { dispatchWebhook } from "@/lib/webhooks";
 import { logAuditEvent } from "@/lib/audit";
 import { getFeatureFlags } from "@/lib/features";
+import { resolveUserAuthorizationContext, isUserSuperAdmin } from "@/lib/access-control";
 
 const orgStatements = {
   organization: ["update", "delete", "transfer_ownership"],
@@ -62,6 +63,61 @@ const defaultOrgRoles = {
     member: [],
     invitation: [],
     billing: [],
+  }),
+};
+
+const adminAc = createAccessControl({
+  user: [
+    "create",
+    "list",
+    "set-role",
+    "ban",
+    "impersonate",
+    "impersonate-admins",
+    "delete",
+    "set-password",
+    "set-email",
+    "get",
+    "update",
+  ],
+  session: ["list", "revoke", "delete"],
+});
+
+const defaultAdminPluginRoles = {
+  super_admin: adminAc.newRole({
+    user: [
+      "create",
+      "list",
+      "set-role",
+      "ban",
+      "impersonate",
+      "impersonate-admins",
+      "delete",
+      "set-password",
+      "set-email",
+      "get",
+      "update",
+    ],
+    session: ["list", "revoke", "delete"],
+  }),
+  admin: adminAc.newRole({
+    user: [
+      "create",
+      "list",
+      "set-role",
+      "ban",
+      "impersonate",
+      "delete",
+      "set-password",
+      "set-email",
+      "get",
+      "update",
+    ],
+    session: ["list", "revoke", "delete"],
+  }),
+  user: adminAc.newRole({
+    user: [],
+    session: [],
   }),
 };
 
@@ -139,6 +195,154 @@ export function createAuth(env: Bindings, _request?: Request) {
       "http://127.0.0.1:*",
       ...envAllowedOrigins,
     ])
+  );
+
+  // Build plugins dynamically based on Feature Flags & configuration
+  const plugins: any[] = [
+    username({
+      minUsernameLength: 3,
+      maxUsernameLength: 30,
+    }),
+    phoneNumber({
+      sendOTP: async ({ phoneNumber, code }) => {
+        await sendSMSOTP({
+          phoneNumber,
+          code,
+          env,
+        });
+      },
+    }),
+    anonymous({
+      emailDomainName: "guest.edgekit.internal",
+    }),
+    multiSession(),
+    haveIBeenPwned({
+      enabled: env.ENVIRONMENT !== "test" && process.env.NODE_ENV !== "test",
+    }),
+    lastLoginMethod(),
+    deviceAuthorization(),
+    admin({
+      ac: adminAc,
+      roles: defaultAdminPluginRoles,
+      adminRoles: ["super_admin"],
+      defaultRole: "user",
+    }),
+  ];
+
+  if (features.mfa) {
+    plugins.push(
+      twoFactor({
+        issuer: "Edgekit Auth",
+      })
+    );
+  }
+
+  if (features.passkeys) {
+    plugins.push(passkey());
+  }
+
+  if (features.organizations) {
+    plugins.push(
+      organization({
+        ac,
+        roles: defaultOrgRoles,
+        dynamicAccessControl: {
+          enabled: true,
+        },
+        sendInvitationEmail: async (data) => {
+          const clientBase = env.APP_URL || baseURL;
+          const inviteUrl = `${clientBase}/accept-invitation?id=${data.id}`;
+          await sendOrganizationInviteEmail({
+            email: data.email,
+            organizationName: data.organization.name,
+            inviterEmail: (data as any).inviter?.email,
+            role: data.role,
+            inviteUrl,
+            env,
+          });
+        },
+      })
+    );
+  }
+
+  if (features.emailOTP) {
+    plugins.push(
+      emailOTP({
+        sendVerificationOTP: async ({ email, otp, type }) => {
+          await sendEmailOTPEmail({
+            email,
+            otp,
+            type,
+            env,
+          });
+        },
+      })
+    );
+  }
+
+  if (features.magicLink) {
+    plugins.push(
+      magicLink({
+        sendMagicLink: async ({ email, url }) => {
+          await sendMagicLinkEmail({
+            email,
+            url,
+            env,
+          });
+        },
+      })
+    );
+  }
+
+  plugins.push(
+    jwt({
+      jwt: {
+        definePayload: async (session) => {
+          const userId = session.user.id;
+          const activeOrgId = features.organizations
+            ? ((session.session as any).activeOrganizationId || null)
+            : null;
+
+          const authCtx = await resolveUserAuthorizationContext(db, env, {
+            userId,
+            activeOrganizationId: activeOrgId,
+            userRecord: session.user,
+          });
+
+          let publicMetadata = {};
+          try {
+            if ((session.user as any).publicMetadata) {
+              publicMetadata =
+                typeof (session.user as any).publicMetadata === "string"
+                  ? JSON.parse((session.user as any).publicMetadata)
+                  : (session.user as any).publicMetadata;
+            }
+          } catch {}
+
+          return {
+            sub: session.user.id,
+            email: session.user.email,
+            name: session.user.name,
+            username: (session.user as any).username || null,
+            locale: (session.user as any).locale || "en",
+            timezone: (session.user as any).timezone || "UTC",
+            isSuperAdmin: authCtx.isSuperAdmin,
+            publicMetadata,
+            org_id: authCtx.activeOrganization?.id || null,
+            org_slug: authCtx.activeOrganization?.slug || null,
+            org_role: authCtx.activeOrganization?.role || null,
+            org_permissions: authCtx.activeOrganization?.permissions || [],
+            roles: authCtx.roles,
+            permissions: authCtx.permissions,
+            plan: authCtx.plan,
+            entitlements: authCtx.entitlements,
+            limits: authCtx.limits,
+          };
+        },
+      },
+    }),
+    bearer(),
+    openAPI()
   );
 
   return betterAuth({
@@ -277,7 +481,7 @@ export function createAuth(env: Bindings, _request?: Request) {
             return {
               data: {
                 ...user,
-                role: isSuper ? "admin" : "user",
+                role: isSuper ? "super_admin" : (user.role || "user"),
                 isSuperAdmin: isSuper,
               },
             };
@@ -448,312 +652,7 @@ export function createAuth(env: Bindings, _request?: Request) {
       },
     },
     socialProviders: Object.keys(socialProviders).length > 0 ? (socialProviders as any) : undefined,
-    plugins: [
-      username({
-        minUsernameLength: 3,
-        maxUsernameLength: 30,
-      }),
-      phoneNumber({
-        sendOTP: async ({ phoneNumber, code }) => {
-          await sendSMSOTP({
-            phoneNumber,
-            code,
-            env,
-          });
-        },
-      }),
-      anonymous({
-        emailDomainName: "guest.edgekit.internal",
-      }),
-      multiSession(),
-      haveIBeenPwned({
-        enabled: env.ENVIRONMENT !== "test" && process.env.NODE_ENV !== "test",
-      }),
-      lastLoginMethod(),
-      deviceAuthorization(),
-      twoFactor({
-        issuer: "Edgekit Auth",
-      }),
-      passkey(),
-      organization({
-        ac,
-        roles: defaultOrgRoles,
-        dynamicAccessControl: {
-          enabled: true,
-        },
-        sendInvitationEmail: async (data) => {
-          const clientBase = env.APP_URL || baseURL;
-          const inviteUrl = `${clientBase}/accept-invitation?id=${data.id}`;
-          await sendOrganizationInviteEmail({
-            email: data.email,
-            organizationName: data.organization.name,
-            inviterEmail: (data as any).inviter?.email,
-            role: data.role,
-            inviteUrl,
-            env,
-          });
-        },
-      }),
-      emailOTP({
-        sendVerificationOTP: async ({ email, otp, type }) => {
-          await sendEmailOTPEmail({
-            email,
-            otp,
-            type,
-            env,
-          });
-        },
-      }),
-      admin(),
-      magicLink({
-        sendMagicLink: async ({ email, url }) => {
-          await sendMagicLinkEmail({
-            email,
-            url,
-            env,
-          });
-        },
-      }),
-      jwt({
-        jwt: {
-          definePayload: async (session) => {
-            const userId = session.user.id;
-            const orgId = features.organizations ? ((session.session as any).activeOrganizationId || null) : null;
-            let orgRole: string | null = null;
-            let orgSlug: string | null = null;
-            let orgPermissions: string[] = [];
-            let activePlan = "free";
-            let activeEntitlements: string[] = [];
-            let activeLimits: Record<string, any> = {};
-
-            // 1. Organization context & dynamic permissions
-            if (features.organizations && orgId) {
-              try {
-                const [mem] = await db
-                  .select()
-                  .from(schema.member)
-                  .where(
-                    and(
-                      eq(schema.member.organizationId, orgId),
-                      eq(schema.member.userId, userId)
-                    )
-                  )
-                  .limit(1);
-
-                if (mem) {
-                  orgRole = mem.role;
-                  const [org] = await db
-                    .select()
-                    .from(schema.organization)
-                    .where(eq(schema.organization.id, orgId))
-                    .limit(1);
-                  if (org) orgSlug = org.slug;
-
-                  const [customRole] = await db
-                    .select()
-                    .from(schema.organizationRole)
-                    .where(
-                      and(
-                        eq(schema.organizationRole.organizationId, orgId),
-                        eq(schema.organizationRole.role, mem.role)
-                      )
-                    )
-                    .limit(1);
-
-                  if (customRole && customRole.permission) {
-                    try {
-                      const parsed = JSON.parse(customRole.permission);
-                      orgPermissions = Array.isArray(parsed)
-                        ? parsed
-                        : (Object.values(parsed).flat() as string[]);
-                    } catch {}
-                  } else {
-                    if (mem.role === "owner") {
-                      orgPermissions = [
-                        "org:delete",
-                        "org:update",
-                        "org:transfer_ownership",
-                        "org:members:invite",
-                        "org:members:manage",
-                        "org:billing:manage",
-                      ];
-                    } else if (mem.role === "admin") {
-                      orgPermissions = [
-                        "org:update",
-                        "org:members:invite",
-                        "org:members:manage",
-                        "org:billing:read",
-                      ];
-                    } else {
-                      orgPermissions = ["org:view"];
-                    }
-                  }
-
-                  // Check if organization has direct metadata entitlements
-                  if (org && org.metadata) {
-                    try {
-                      const orgMeta = typeof org.metadata === "string" ? JSON.parse(org.metadata) : org.metadata;
-                      if (orgMeta?.plan) activePlan = orgMeta.plan;
-                      if (Array.isArray(orgMeta?.entitlements)) activeEntitlements = orgMeta.entitlements;
-                      if (orgMeta?.limits && typeof orgMeta.limits === "object") activeLimits = orgMeta.limits;
-                    } catch {}
-                  }
-
-                  // 2. Billing & Stripe subscription for active organization (if billing is enabled)
-                  if (features.billing) {
-                    const [sub] = await db
-                      .select()
-                      .from(schema.billingSubscription)
-                      .innerJoin(
-                        schema.billingPlan,
-                        eq(schema.billingSubscription.planId, schema.billingPlan.id)
-                      )
-                      .where(
-                        and(
-                          eq(schema.billingSubscription.targetType, "organization"),
-                          eq(schema.billingSubscription.targetId, orgId),
-                          eq(schema.billingSubscription.status, "active")
-                        )
-                      )
-                      .limit(1);
-
-                    if (sub) {
-                      activePlan = sub.billing_plan.slug;
-                      try {
-                        activeEntitlements = JSON.parse(sub.billing_plan.features || "[]");
-                      } catch {}
-                      try {
-                        activeLimits = JSON.parse(sub.billing_plan.limits || "{}");
-                      } catch {}
-                    }
-                  }
-                }
-              } catch {}
-            }
-
-            // 3. User-level B2C subscription or direct entitlements if no active org subscription was found
-            if (activePlan === "free" && userId) {
-              if (features.billing) {
-                try {
-                  const [userSub] = await db
-                    .select()
-                    .from(schema.billingSubscription)
-                    .innerJoin(
-                      schema.billingPlan,
-                      eq(schema.billingSubscription.planId, schema.billingPlan.id)
-                    )
-                    .where(
-                      and(
-                        eq(schema.billingSubscription.targetType, "user"),
-                        eq(schema.billingSubscription.targetId, userId),
-                        eq(schema.billingSubscription.status, "active")
-                      )
-                    )
-                    .limit(1);
-
-                  if (userSub) {
-                    activePlan = userSub.billing_plan.slug;
-                    try {
-                      activeEntitlements = JSON.parse(userSub.billing_plan.features || "[]");
-                    } catch {}
-                    try {
-                      activeLimits = JSON.parse(userSub.billing_plan.limits || "{}");
-                    } catch {}
-                  }
-                } catch {}
-              }
-
-              // Check direct entitlements on user publicMetadata
-              if (activePlan === "free" && (session.user as any).publicMetadata) {
-                try {
-                  const userMeta = typeof (session.user as any).publicMetadata === "string"
-                    ? JSON.parse((session.user as any).publicMetadata)
-                    : (session.user as any).publicMetadata;
-                  if (userMeta?.plan) activePlan = userMeta.plan;
-                  if (Array.isArray(userMeta?.entitlements)) activeEntitlements = userMeta.entitlements;
-                  if (userMeta?.limits && typeof userMeta.limits === "object") activeLimits = userMeta.limits;
-                } catch {}
-              }
-            }
-
-            // 4. Global RBAC roles & permissions (if RBAC feature is enabled)
-            let globalRoles: string[] = [];
-            let globalPermissions: string[] = [];
-            if (features.rbac) {
-              try {
-                const userRolesList = await db
-                  .select({
-                    roleKey: schema.role.key,
-                  })
-                  .from(schema.userRole)
-                  .innerJoin(schema.role, eq(schema.userRole.roleId, schema.role.id))
-                  .where(eq(schema.userRole.userId, userId));
-
-                globalRoles = userRolesList.map((r) => r.roleKey);
-
-                if (globalRoles.length > 0) {
-                  const permsList = await db
-                    .select({
-                      permissionKey: schema.rolePermission.permissionKey,
-                    })
-                    .from(schema.rolePermission)
-                    .innerJoin(
-                      schema.role,
-                      eq(schema.rolePermission.roleId, schema.role.id)
-                    )
-                    .where(
-                      sql`${schema.role.key} IN (${sql.join(
-                        globalRoles.map((r) => sql`${r}`),
-                        sql`, `
-                      )})`
-                    );
-
-                  globalPermissions = Array.from(new Set(permsList.map((p) => p.permissionKey)));
-                }
-              } catch {}
-            }
-
-            let publicMetadata = {};
-            try {
-              if ((session.user as any).publicMetadata) {
-                publicMetadata =
-                  typeof (session.user as any).publicMetadata === "string"
-                    ? JSON.parse((session.user as any).publicMetadata)
-                    : (session.user as any).publicMetadata;
-              }
-            } catch {}
-
-            const isSuperAdmin = Boolean(
-              (session.user as any).isSuperAdmin ||
-              (session.user as any).role === "super_admin" ||
-              (session.user as any).role === "admin"
-            );
-
-            return {
-              sub: session.user.id,
-              email: session.user.email,
-              name: session.user.name,
-              username: (session.user as any).username || null,
-              locale: (session.user as any).locale || "en",
-              timezone: (session.user as any).timezone || "UTC",
-              isSuperAdmin,
-              publicMetadata,
-              org_id: orgId,
-              org_slug: orgSlug,
-              org_role: orgRole,
-              org_permissions: orgPermissions,
-              roles: globalRoles,
-              permissions: globalPermissions,
-              plan: activePlan,
-              entitlements: activeEntitlements,
-              limits: activeLimits,
-            };
-          },
-        },
-      }),
-      bearer(),
-      openAPI(),
-    ],
+    plugins,
   });
 }
 

@@ -332,7 +332,7 @@ describe("Edgekit Auth (Better Auth) Integration Tests", () => {
   });
 
   describe("Admin Bootstrapping & Webhooks Integration", () => {
-    it("should automatically assign role 'admin' if user email is listed in ADMIN_EMAILS", async () => {
+    it("should automatically assign role 'super_admin' if user email is listed in ADMIN_EMAILS", async () => {
       const envWithAdmin: Bindings = {
         ...mockEnv,
         ADMIN_EMAILS: "superadmin@edgekit.dev, another@test.com",
@@ -354,7 +354,8 @@ describe("Edgekit Auth (Better Auth) Integration Tests", () => {
 
       expect(res.status).toBe(200);
       const body = (await res.json()) as any;
-      expect(body.user.role).toBe("admin");
+      expect(body.user.role).toBe("super_admin");
+      expect(body.user.isSuperAdmin).toBe(true);
     });
 
     it("should accept forgot-password request and trigger password reset email flow", async () => {

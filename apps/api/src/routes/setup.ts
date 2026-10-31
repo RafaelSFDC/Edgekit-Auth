@@ -18,7 +18,7 @@ setupRoutes.get("/status", async (c) => {
     const [admin] = await db
       .select({ count: sql<number>`count(*)` })
       .from(schema.user)
-      .where(sql`${schema.user.role} IN ('admin', 'super_admin') OR ${schema.user.isSuperAdmin} = 1`);
+      .where(sql`${schema.user.role} = 'super_admin' OR ${schema.user.isSuperAdmin} = 1`);
 
     const adminCount = Number(admin?.count || 0);
     const initialized = adminCount > 0;
@@ -52,7 +52,7 @@ setupRoutes.post("/", async (c) => {
   const [admin] = await db
     .select({ count: sql<number>`count(*)` })
     .from(schema.user)
-    .where(sql`${schema.user.role} IN ('admin', 'super_admin') OR ${schema.user.isSuperAdmin} = 1`);
+    .where(sql`${schema.user.role} = 'super_admin' OR ${schema.user.isSuperAdmin} = 1`);
 
   if (Number(admin?.count || 0) > 0) {
     return c.json(
@@ -103,11 +103,11 @@ setupRoutes.post("/", async (c) => {
     );
   }
 
-  // 4. Promover o usuário criado para papel de super-administrador ('admin') com isSuperAdmin = true
+  // 4. Promover o usuário criado para papel de super-administrador ('super_admin') com isSuperAdmin = true
   await db
     .update(schema.user)
     .set({
-      role: "admin",
+      role: "super_admin",
       isSuperAdmin: true,
       emailVerified: true,
     })
@@ -140,7 +140,8 @@ setupRoutes.post("/", async (c) => {
         id: resData?.user?.id,
         name,
         email,
-        role: "admin",
+        role: "super_admin",
+        isSuperAdmin: true,
       },
       session: resData?.session,
     }),

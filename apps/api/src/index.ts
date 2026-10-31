@@ -10,6 +10,8 @@ import { setupRoutes } from "@/routes/setup";
 import { billingRoutes } from "@/routes/billing";
 import { rbacRoutes } from "@/routes/rbac";
 import { userRoutes } from "@/routes/users";
+import { organizationRoutes } from "@/routes/organizations";
+import { authenticateAdminOrM2M } from "@/lib/access-control";
 
 const app = new Hono<AppContext>();
 
@@ -107,6 +109,25 @@ app.route("/api/billing", billingRoutes);
 // Consumer User Self-Service Endpoints (Profile, Preferences, Sessions, Metadata)
 app.route("/api/v1/users", userRoutes);
 app.route("/api/users", userRoutes);
+
+// Organizations & Membership Management Endpoints
+app.route("/api/v1/organizations", organizationRoutes);
+app.route("/api/organizations", organizationRoutes);
+
+// Guard Better Auth internal admin plugin endpoints
+app.use("/api/auth/admin/*", async (c, next) => {
+  const adminAuth = await authenticateAdminOrM2M(c);
+  if (!adminAuth) {
+    return c.json(
+      {
+        error: "Unauthorized",
+        message: "Acesso restrito ao Super Admin da instalação ou Secret Key M2M",
+      },
+      403
+    );
+  }
+  await next();
+});
 
 // Mount Better Auth Handler on /api/auth/*
 app.all("/api/auth/*", (c) => {

@@ -50,11 +50,11 @@ async function main() {
   console.log(`\n⚡ [Edgekit Auth] Admin Management CLI (${isRemote ? "REMOTE D1" : "LOCAL D1"})\n`);
 
   if (listOnly) {
-    console.log("📋 Listando administradores cadastrados...");
-    const res = runD1Command("SELECT id, name, email, role, banned, created_at FROM user WHERE role = 'admin';", isRemote);
+    console.log("📋 Listando administradores da instalação...");
+    const res = runD1Command("SELECT id, name, email, role, is_super_admin, banned, created_at FROM user WHERE role = 'super_admin' OR is_super_admin = 1;", isRemote);
     const admins = res?.[0]?.results || [];
     if (admins.length === 0) {
-      console.log("Nenhum usuário com papel 'admin' encontrado no banco.");
+      console.log("Nenhum Super Admin encontrado no banco.");
     } else {
       console.table(admins);
     }
@@ -129,15 +129,15 @@ async function main() {
 
   // Action: Promote
   if (existingUser) {
-    if (existingUser.role === "admin") {
-      console.log(`ℹ️  O usuário '${email}' já possui privilégios de 'admin'.`);
+    if (existingUser.role === "super_admin" || existingUser.is_super_admin === 1) {
+      console.log(`ℹ️  O usuário '${email}' já possui privilégios de Super Admin.`);
       return;
     }
 
-    console.log(`Promovendo '${email}' de '${existingUser.role || "user"}' para 'admin'...`);
-    const updateSql = `UPDATE user SET role = 'admin', is_super_admin = 1 WHERE id = '${existingUser.id}';`;
+    console.log(`Promovendo '${email}' de '${existingUser.role || "user"}' para Super Admin...`);
+    const updateSql = `UPDATE user SET role = 'super_admin', is_super_admin = 1 WHERE id = '${existingUser.id}';`;
     runD1Command(updateSql, isRemote);
-    console.log(`✅ Sucesso! O usuário '${email}' agora é um Administrador (role='admin', is_super_admin=1).`);
+    console.log(`✅ Sucesso! O usuário '${email}' agora é um Super Admin (role='super_admin', is_super_admin=1).`);
     return;
   }
 
@@ -149,24 +149,24 @@ async function main() {
     process.exit(1);
   }
 
-  console.log(`Criando nova conta de administrador para '${email}'...`);
+  console.log(`Criando nova conta de Super Admin para '${email}'...`);
   const userId = crypto.randomUUID();
   const accountId = crypto.randomUUID();
   const now = Date.now();
   const hashedPassword = await hashPassword(password);
 
-  // Insert User
-  const insertUserSql = `INSERT INTO user (id, name, email, email_verified, role, is_super_admin, banned, created_at, updated_at) VALUES ('${userId}', '${name}', '${email.toLowerCase()}', 1, 'admin', 1, 0, ${now}, ${now});`;
+  // Insert User as super_admin
+  const insertUserSql = `INSERT INTO user (id, name, email, email_verified, role, is_super_admin, banned, created_at, updated_at) VALUES ('${userId}', '${name}', '${email.toLowerCase()}', 1, 'super_admin', 1, 0, ${now}, ${now});`;
   runD1Command(insertUserSql, isRemote);
 
   // Insert Account with password (account_id must match userId in Better Auth for credential provider)
   const insertAccountSql = `INSERT INTO account (id, account_id, provider_id, user_id, password, created_at, updated_at) VALUES ('${accountId}', '${userId}', 'credential', '${userId}', '${hashedPassword}', ${now}, ${now});`;
   runD1Command(insertAccountSql, isRemote);
 
-  console.log(`\n🎉 Conta de Administrador criada com sucesso!`);
+  console.log(`\n🎉 Conta de Super Admin criada com sucesso!`);
   console.log(`   • Nome: ${name}`);
   console.log(`   • Email: ${email.toLowerCase()}`);
-  console.log(`   • Cargo: admin`);
+  console.log(`   • Cargo: super_admin (isSuperAdmin=true)`);
   console.log(`   • Ambiente: ${isRemote ? "Remote Cloudflare D1" : "Local D1"}`);
   console.log(`\nVocê já pode acessar o console em: http://localhost:5173/login\n`);
 }

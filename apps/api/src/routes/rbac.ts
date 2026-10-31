@@ -3,6 +3,7 @@ import type { AppContext } from "@/types/env";
 import * as schema from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { verifyApiKey } from "@/lib/api-keys";
+import { authenticateAdminOrM2M } from "@/lib/access-control";
 
 export const rbacRoutes = new Hono<AppContext>();
 
@@ -20,28 +21,8 @@ rbacRoutes.use("*", async (c, next) => {
     );
   }
 
-  const auth = c.get("auth");
-  const db = c.get("db");
-
-  const authHeader = c.req.header("authorization") || "";
-  const xApiKey = c.req.header("x-api-key") || "";
-  const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : xApiKey.trim();
-
-  if (token && (token.startsWith("sk_") || token.startsWith("ek_"))) {
-    const apiKeyRecord = await verifyApiKey(db, token);
-    if (apiKeyRecord && apiKeyRecord.keyType === "secret" && apiKeyRecord.role === "admin") {
-      return next();
-    }
-  }
-
-  const session = await auth.api.getSession({ headers: c.req.raw.headers });
-  const isSuper = Boolean(
-    (session?.user as any)?.isSuperAdmin ||
-    (session?.user as any)?.role === "super_admin" ||
-    (session?.user as any)?.role === "admin"
-  );
-
-  if (!session || !isSuper) {
+  const adminAuth = await authenticateAdminOrM2M(c);
+  if (!adminAuth) {
     return c.json({ error: "Unauthorized", message: "Acesso restrito ao Super-Admin" }, 403);
   }
 

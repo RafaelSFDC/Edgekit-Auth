@@ -38,7 +38,16 @@ export function createCorsMiddleware(): MiddlewareHandler<AppContext> {
         return origin;
       },
       allowMethods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"],
-      allowHeaders: ["Content-Type", "Authorization", "X-Requested-With", "x-api-key"],
+      allowHeaders: [
+        "Content-Type",
+        "Authorization",
+        "X-Requested-With",
+        "x-api-key",
+        "x-edgekit-publishable-key",
+        "x-publishable-key",
+        "x-organization-id",
+        "x-user-id",
+      ],
       exposeHeaders: ["Content-Length", "X-Total-Count", "set-auth-token"],
       credentials: true,
       maxAge: 86400,

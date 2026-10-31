@@ -81,4 +81,48 @@ describe("@edgekit/node SDK Unit Tests", () => {
     const isInvalid = await auth.verifyWebhookSignature(payload, "wrong_signature", secret);
     expect(isInvalid).toBe(false);
   });
+
+  it("checks authorization predicates using auth.has() correctly", () => {
+    const mockSession = {
+      userId: "usr_123",
+      email: "alice@test.com",
+      roles: ["editor", "member"],
+      permissions: ["posts:create", "posts:edit"],
+      orgId: "org_1",
+      orgSlug: "acme",
+      orgRole: "admin",
+      orgPermissions: ["org:update", "org:members:invite"],
+      plan: "pro",
+      entitlements: ["export:csv", "ai:assist"],
+      rawPayload: {},
+    };
+
+    expect(auth.has(mockSession, { role: "editor" })).toBe(true);
+    expect(auth.has(mockSession, { role: "super_admin" })).toBe(false);
+
+    expect(auth.has(mockSession, { permission: "posts:create" })).toBe(true);
+    expect(auth.has(mockSession, { permission: "billing:delete" })).toBe(false);
+
+    expect(auth.has(mockSession, { orgRole: "admin" })).toBe(true);
+    expect(auth.has(mockSession, { orgRole: "owner" })).toBe(false);
+
+    expect(auth.has(mockSession, { orgPermission: "org:update" })).toBe(true);
+    expect(auth.has(mockSession, { orgPermission: "org:delete" })).toBe(false);
+
+    expect(auth.has(mockSession, { feature: "ai:assist" })).toBe(true);
+    expect(auth.has(mockSession, { feature: "sso:saml" })).toBe(false);
+
+    expect(auth.has(mockSession, { plan: "pro" })).toBe(true);
+    expect(auth.has(mockSession, { plan: "enterprise" })).toBe(false);
+
+    // Multi-condition check
+    expect(
+      auth.has(mockSession, {
+        role: "editor",
+        permission: "posts:create",
+        feature: "ai:assist",
+        plan: "pro",
+      })
+    ).toBe(true);
+  });
 });

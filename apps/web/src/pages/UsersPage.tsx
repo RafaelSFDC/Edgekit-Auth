@@ -34,6 +34,7 @@ import {
   UserPlus,
   Shield,
   ShieldAlert,
+  Crown,
   Ban,
   CheckCircle,
   Eye,
@@ -391,7 +392,8 @@ export const UsersPage: React.FC = () => {
                 <TableBody>
                   {users.map((u) => {
                     const isBanned = Boolean(u.banned);
-                    const isAdmin = u.role === 'admin';
+                    const isSuper = Boolean(u.isSuperAdmin || u.role === 'super_admin');
+                    const isAdmin = u.role === 'admin' || isSuper;
 
                     return (
                       <TableRow
@@ -415,9 +417,12 @@ export const UsersPage: React.FC = () => {
                           </div>
                         </TableCell>
                         <TableCell>
-                          <Badge variant={isAdmin ? 'default' : 'secondary'} className="text-[10px] px-2 py-0">
-                            {isAdmin ? <Shield className="size-3 mr-1" /> : null}
-                            {u.role || 'user'}
+                          <Badge
+                            variant={isSuper ? 'default' : isAdmin ? 'secondary' : 'outline'}
+                            className={cn('text-[10px] px-2 py-0', isSuper && 'bg-amber-500/15 text-amber-400 border border-amber-500/30')}
+                          >
+                            {isSuper ? <Crown className="size-3 mr-1 text-amber-400" /> : isAdmin ? <Shield className="size-3 mr-1" /> : null}
+                            {isSuper ? 'Super Admin' : u.role || 'user'}
                           </Badge>
                         </TableCell>
                         <TableCell>

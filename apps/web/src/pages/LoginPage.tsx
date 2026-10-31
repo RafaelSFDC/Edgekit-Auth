@@ -128,9 +128,8 @@ export const LoginPage: React.FC = () => {
       // Check super-admin status
       const session = await authClient.getSession();
       const isSuper = Boolean(
-        (session?.data?.user as any)?.isSuperAdmin ||
-        (session?.data?.user as any)?.role === 'super_admin' ||
-        (session?.data?.user as any)?.role === 'admin'
+        (session?.data?.user as any)?.isSuperAdmin === true ||
+        (session?.data?.user as any)?.role === 'super_admin'
       );
       if (!isSuper) {
         await authClient.signOut();
@@ -174,9 +173,8 @@ export const LoginPage: React.FC = () => {
 
       const session = await authClient.getSession();
       const isSuper = Boolean(
-        (session?.data?.user as any)?.isSuperAdmin ||
-        (session?.data?.user as any)?.role === 'super_admin' ||
-        (session?.data?.user as any)?.role === 'admin'
+        (session?.data?.user as any)?.isSuperAdmin === true ||
+        (session?.data?.user as any)?.role === 'super_admin'
       );
       if (!isSuper) {
         await authClient.signOut();
@@ -204,9 +202,8 @@ export const LoginPage: React.FC = () => {
       } else {
         const session = await authClient.getSession();
         const isSuper = Boolean(
-          (session?.data?.user as any)?.isSuperAdmin ||
-          (session?.data?.user as any)?.role === 'super_admin' ||
-          (session?.data?.user as any)?.role === 'admin'
+          (session?.data?.user as any)?.isSuperAdmin === true ||
+          (session?.data?.user as any)?.role === 'super_admin'
         );
         if (!isSuper) {
           await authClient.signOut();

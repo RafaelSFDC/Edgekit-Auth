@@ -2,10 +2,11 @@ import { Hono } from "hono";
 import { z } from "zod";
 import type { AppContext } from "@/types/env";
 import * as schema from "@/db/schema";
-import { eq, and, gt, sql, ne } from "drizzle-orm";
+import { eq, and, gt, sql, ne, or, desc } from "drizzle-orm";
 import { verifyApiKey } from "@/lib/api-keys";
 import { logAuditEvent } from "@/lib/audit";
 import { dispatchWebhook } from "@/lib/webhooks";
+import { resolveUserAuthorizationContext, isUserSuperAdmin } from "@/lib/access-control";
 
 export const userRoutes = new Hono<AppContext>();
 
@@ -13,6 +14,8 @@ interface AuthIdentity {
   userId: string;
   isM2M: boolean;
   currentSessionId?: string;
+  activeOrganizationId?: string | null;
+  isSuperAdmin?: boolean;
 }
 
 /**
@@ -36,6 +39,7 @@ async function getAuthIdentity(c: any): Promise<AuthIdentity | null> {
       return {
         userId: targetUserId,
         isM2M: true,
+        isSuperAdmin: apiKeyRecord.role === "admin",
       };
     }
   }
@@ -47,6 +51,8 @@ async function getAuthIdentity(c: any): Promise<AuthIdentity | null> {
       userId: session.user.id,
       isM2M: false,
       currentSessionId: session.session.id,
+      activeOrganizationId: (session.session as any).activeOrganizationId || null,
+      isSuperAdmin: isUserSuperAdmin(session.user),
     };
   }
 
@@ -102,123 +108,20 @@ userRoutes.get("/me", async (c) => {
     );
   }
 
-  // 1. Organization context (if any)
-  let activeOrg: any = null;
-  const memberships = await db
-    .select({
-      member: schema.member,
-      org: schema.organization,
-    })
-    .from(schema.member)
-    .innerJoin(schema.organization, eq(schema.member.organizationId, schema.organization.id))
-    .where(eq(schema.member.userId, targetUser.id));
+  const authCtx = await resolveUserAuthorizationContext(db, c.env, {
+    userId: targetUser.id,
+    activeOrganizationId:
+      identity.activeOrganizationId ||
+      c.req.header("x-organization-id") ||
+      c.req.query("organization_id") ||
+      null,
+    userRecord: targetUser,
+  });
 
-  if (memberships.length > 0) {
-    const firstMembership = memberships[0];
-    let permissions: string[] = [];
-
-    const [customRole] = await db
-      .select()
-      .from(schema.organizationRole)
-      .where(
-        and(
-          eq(schema.organizationRole.organizationId, firstMembership.org.id),
-          eq(schema.organizationRole.role, firstMembership.member.role)
-        )
-      )
-      .limit(1);
-
-    if (customRole && customRole.permission) {
-      try {
-        const parsed = JSON.parse(customRole.permission);
-        permissions = Array.isArray(parsed) ? parsed : (Object.values(parsed).flat() as string[]);
-      } catch {}
-    } else {
-      if (firstMembership.member.role === "owner") {
-        permissions = [
-          "org:delete",
-          "org:update",
-          "org:transfer_ownership",
-          "org:members:invite",
-          "org:members:manage",
-          "org:billing:manage",
-        ];
-      } else if (firstMembership.member.role === "admin") {
-        permissions = [
-          "org:update",
-          "org:members:invite",
-          "org:members:manage",
-          "org:billing:read",
-        ];
-      } else {
-        permissions = ["org:view"];
-      }
-    }
-
-    activeOrg = {
-      id: firstMembership.org.id,
-      name: firstMembership.org.name,
-      slug: firstMembership.org.slug,
-      role: firstMembership.member.role,
-      permissions,
-    };
-  }
-
-  // 2. Global RBAC roles & permissions
-  const userRolesList = await db
-    .select({
-      roleKey: schema.role.key,
-      roleId: schema.role.id,
-    })
-    .from(schema.userRole)
-    .innerJoin(schema.role, eq(schema.userRole.roleId, schema.role.id))
-    .where(eq(schema.userRole.userId, targetUser.id));
-
-  const roles = userRolesList.map((r) => r.roleKey);
-  let permissions: string[] = [];
-  if (roles.length > 0) {
-    const perms = await db
-      .select({
-        permissionKey: schema.rolePermission.permissionKey,
-      })
-      .from(schema.rolePermission)
-      .innerJoin(schema.role, eq(schema.rolePermission.roleId, schema.role.id))
-      .where(
-        sql`${schema.role.key} IN (${sql.join(
-          roles.map((r) => sql`${r}`),
-          sql`, `
-        )})`
-      );
-    permissions = Array.from(new Set(perms.map((p) => p.permissionKey)));
-  }
-
-  // 3. Billing Plan & Entitlements
-  let plan = "free";
-  let entitlements: string[] = [];
-  const [sub] = await db
-    .select()
-    .from(schema.billingSubscription)
-    .innerJoin(schema.billingPlan, eq(schema.billingSubscription.planId, schema.billingPlan.id))
-    .where(
-      and(
-        eq(schema.billingSubscription.targetType, "user"),
-        eq(schema.billingSubscription.targetId, targetUser.id),
-        eq(schema.billingSubscription.status, "active")
-      )
-    )
-    .limit(1);
-
-  if (sub) {
-    plan = sub.billing_plan.slug;
-    entitlements = safeJsonParse<string[]>(sub.billing_plan.features, []);
-  }
-
-  // Parse Metadata & Preferences
   const publicMetadata = safeJsonParse(targetUser.publicMetadata, {});
   const unsafeMetadata = safeJsonParse(targetUser.unsafeMetadata, {});
   const preferences = safeJsonParse(targetUser.preferences, {});
 
-  // Build clean User response (following Clerk / Supabase standards)
   const userResponse: Record<string, any> = {
     id: targetUser.id,
     name: targetUser.name,
@@ -242,18 +145,19 @@ userRoutes.get("/me", async (c) => {
     createdAt: targetUser.createdAt,
     updatedAt: targetUser.updatedAt,
     lastActiveAt: targetUser.lastActiveAt || null,
-    organization: activeOrg,
-    roles,
-    permissions,
-    plan,
-    entitlements,
+    organization: authCtx.activeOrganization,
+    roles: authCtx.roles,
+    permissions: authCtx.permissions,
+    plan: authCtx.plan,
+    subscriptionStatus: authCtx.subscriptionStatus,
+    entitlements: authCtx.entitlements,
+    limits: authCtx.limits,
+    isSuperAdmin: authCtx.isSuperAdmin,
   };
 
-  // If caller is backend M2M with Secret Key, include privateMetadata
   if (identity.isM2M) {
     userResponse.privateMetadata = safeJsonParse(targetUser.privateMetadata, {});
     userResponse.role = targetUser.role;
-    userResponse.isSuperAdmin = Boolean(targetUser.isSuperAdmin);
   }
 
   return c.json({ user: userResponse });
@@ -692,6 +596,30 @@ userRoutes.post("/me/invitations/:id/accept", async (c) => {
     return c.json({ error: "BadRequest", message: "Este convite já foi utilizado ou expirou." }, 400);
   }
 
+  // Quota check: org maxMembers
+  const [targetOrg] = await db
+    .select()
+    .from(schema.organization)
+    .where(eq(schema.organization.id, invite.organizationId))
+    .limit(1);
+
+  if (targetOrg && targetOrg.maxMembers && targetOrg.maxMembers > 0) {
+    const [memberCount] = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(schema.member)
+      .where(eq(schema.member.organizationId, targetOrg.id));
+
+    if (memberCount && memberCount.count >= targetOrg.maxMembers) {
+      return c.json(
+        {
+          error: "QuotaExceeded",
+          message: `Limite de membros atingido (${targetOrg.maxMembers} membros). A organização precisa atualizar seu plano para aceitar mais membros.`,
+        },
+        400
+      );
+    }
+  }
+
   const [existingMember] = await db
     .select()
     .from(schema.member)
@@ -797,4 +725,223 @@ userRoutes.post("/me/invitations/:id/reject", async (c) => {
     success: true,
     message: "Convite rejeitado com sucesso.",
   });
+});
+
+/**
+ * GET /api/v1/users
+ * List users (M2M Secret Key or Super Admin only)
+ */
+userRoutes.get("/", async (c) => {
+  const identity = await getAuthIdentity(c);
+  if (!identity || (!identity.isM2M && !identity.isSuperAdmin)) {
+    return c.json({ error: "Unauthorized", message: "Acesso restrito ao backend via Secret Key ou Super Admin." }, 403);
+  }
+
+  const db = c.get("db");
+  const page = Math.max(1, parseInt(c.req.query("page") || "1"));
+  const limit = Math.min(100, Math.max(1, parseInt(c.req.query("limit") || "20")));
+  const search = c.req.query("search")?.trim()?.toLowerCase();
+  const offset = (page - 1) * limit;
+
+  let query = db.select().from(schema.user);
+  if (search) {
+    query = query.where(
+      or(
+        sql`lower(${schema.user.email}) LIKE ${`%${search}%`}`,
+        sql`lower(${schema.user.name}) LIKE ${`%${search}%`}`
+      )
+    ) as any;
+  }
+
+  const usersList = await query.limit(limit).offset(offset).orderBy(desc(schema.user.createdAt));
+  const [countRes] = await db.select({ count: sql<number>`count(*)` }).from(schema.user);
+
+  return c.json({
+    users: usersList.map((u) => ({
+      id: u.id,
+      name: u.name,
+      email: u.email,
+      role: u.role,
+      isSuperAdmin: Boolean(u.isSuperAdmin),
+      emailVerified: Boolean(u.emailVerified),
+      image: u.image,
+      createdAt: u.createdAt,
+      lastActiveAt: u.lastActiveAt,
+      publicMetadata: safeJsonParse(u.publicMetadata, {}),
+      privateMetadata: safeJsonParse(u.privateMetadata, {}),
+      unsafeMetadata: safeJsonParse(u.unsafeMetadata, {}),
+    })),
+    pagination: {
+      page,
+      limit,
+      total: countRes?.count || 0,
+    },
+  });
+});
+
+/**
+ * GET /api/v1/users/:id
+ * Get single user by ID (M2M or Super Admin, or user reading self)
+ */
+userRoutes.get("/:id", async (c) => {
+  const identity = await getAuthIdentity(c);
+  const targetId = c.req.param("id");
+  if (!identity) {
+    return c.json({ error: "Unauthorized", message: "Autenticação necessária." }, 401);
+  }
+
+  if (targetId !== identity.userId && !identity.isM2M && !identity.isSuperAdmin) {
+    return c.json({ error: "Forbidden", message: "Acesso não autorizado aos dados de outro usuário." }, 403);
+  }
+
+  const db = c.get("db");
+  const [targetUser] = await db
+    .select()
+    .from(schema.user)
+    .where(eq(schema.user.id, targetId))
+    .limit(1);
+
+  if (!targetUser) {
+    return c.json({ error: "NotFound", message: "Usuário não encontrado." }, 404);
+  }
+
+  const authCtx = await resolveUserAuthorizationContext(db, c.env, {
+    userId: targetUser.id,
+    userRecord: targetUser,
+  });
+
+  const res: Record<string, any> = {
+    id: targetUser.id,
+    name: targetUser.name,
+    email: targetUser.email,
+    emailVerified: Boolean(targetUser.emailVerified),
+    image: targetUser.image,
+    role: targetUser.role,
+    isSuperAdmin: Boolean(targetUser.isSuperAdmin),
+    locale: targetUser.locale,
+    timezone: targetUser.timezone,
+    theme: targetUser.theme,
+    createdAt: targetUser.createdAt,
+    updatedAt: targetUser.updatedAt,
+    lastActiveAt: targetUser.lastActiveAt,
+    publicMetadata: safeJsonParse(targetUser.publicMetadata, {}),
+    unsafeMetadata: safeJsonParse(targetUser.unsafeMetadata, {}),
+    organization: authCtx.activeOrganization,
+    roles: authCtx.roles,
+    permissions: authCtx.permissions,
+    plan: authCtx.plan,
+    entitlements: authCtx.entitlements,
+  };
+
+  if (identity.isM2M || identity.isSuperAdmin) {
+    res.privateMetadata = safeJsonParse(targetUser.privateMetadata, {});
+  }
+
+  return c.json({ user: res });
+});
+
+/**
+ * PATCH /api/v1/users/:id
+ * Update user by ID (M2M or Super Admin)
+ */
+userRoutes.patch("/:id", async (c) => {
+  const identity = await getAuthIdentity(c);
+  if (!identity || (!identity.isM2M && !identity.isSuperAdmin)) {
+    return c.json({ error: "Unauthorized", message: "Acesso restrito ao backend via Secret Key ou Super Admin." }, 403);
+  }
+
+  const targetId = c.req.param("id");
+  const db = c.get("db");
+
+  const [existingUser] = await db
+    .select()
+    .from(schema.user)
+    .where(eq(schema.user.id, targetId))
+    .limit(1);
+
+  if (!existingUser) {
+    return c.json({ error: "NotFound", message: "Usuário não encontrado." }, 404);
+  }
+
+  const body = await c.req.json().catch(() => ({}));
+  const updateFields: Record<string, any> = {
+    updatedAt: new Date(),
+  };
+
+  if (body.name !== undefined) updateFields.name = body.name;
+  if (body.firstName !== undefined) updateFields.firstName = body.firstName;
+  if (body.lastName !== undefined) updateFields.lastName = body.lastName;
+  if (body.image !== undefined) updateFields.image = body.image;
+  if (body.emailVerified !== undefined) updateFields.emailVerified = Boolean(body.emailVerified);
+  if (body.role !== undefined && (identity.isSuperAdmin || existingUser.role !== "super_admin")) {
+    updateFields.role = body.role;
+  }
+  if (body.publicMetadata !== undefined) {
+    updateFields.publicMetadata = typeof body.publicMetadata === "string" ? body.publicMetadata : JSON.stringify(body.publicMetadata);
+  }
+  if (body.privateMetadata !== undefined) {
+    updateFields.privateMetadata = typeof body.privateMetadata === "string" ? body.privateMetadata : JSON.stringify(body.privateMetadata);
+  }
+  if (body.unsafeMetadata !== undefined) {
+    updateFields.unsafeMetadata = typeof body.unsafeMetadata === "string" ? body.unsafeMetadata : JSON.stringify(body.unsafeMetadata);
+  }
+
+  const [updatedUser] = await db
+    .update(schema.user)
+    .set(updateFields)
+    .where(eq(schema.user.id, existingUser.id))
+    .returning();
+
+  await logAuditEvent(db, {
+    action: "user.updated_by_admin",
+    actorId: identity.userId,
+    targetId: existingUser.id,
+    targetType: "user",
+    metadata: { updatedFields: Object.keys(updateFields) },
+  });
+
+  return c.json({ success: true, user: updatedUser });
+});
+
+/**
+ * DELETE /api/v1/users/:id
+ * Delete user by ID (M2M or Super Admin)
+ */
+userRoutes.delete("/:id", async (c) => {
+  const identity = await getAuthIdentity(c);
+  if (!identity || (!identity.isM2M && !identity.isSuperAdmin)) {
+    return c.json({ error: "Unauthorized", message: "Acesso restrito ao backend via Secret Key ou Super Admin." }, 403);
+  }
+
+  const targetId = c.req.param("id");
+  const db = c.get("db");
+
+  const [existingUser] = await db
+    .select()
+    .from(schema.user)
+    .where(eq(schema.user.id, targetId))
+    .limit(1);
+
+  if (!existingUser) {
+    return c.json({ error: "NotFound", message: "Usuário não encontrado." }, 404);
+  }
+
+  if (existingUser.role === "super_admin" || existingUser.isSuperAdmin) {
+    return c.json({ error: "Forbidden", message: "Não é permitido excluir o Super Admin da instalação." }, 403);
+  }
+
+  await db.delete(schema.session).where(eq(schema.session.userId, existingUser.id));
+  await db.delete(schema.member).where(eq(schema.member.userId, existingUser.id));
+  await db.delete(schema.userRole).where(eq(schema.userRole.userId, existingUser.id));
+  await db.delete(schema.user).where(eq(schema.user.id, existingUser.id));
+
+  await logAuditEvent(db, {
+    action: "user.deleted_by_admin",
+    actorId: identity.userId,
+    targetId: existingUser.id,
+    targetType: "user",
+    metadata: { email: existingUser.email },
+  });
+
+  return c.json({ success: true, message: "Usuário excluído com sucesso." });
 });

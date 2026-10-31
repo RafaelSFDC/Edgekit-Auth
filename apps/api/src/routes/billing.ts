@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import type { AppContext } from "@/types/env";
 import * as schema from "@/db/schema";
-import { eq, and, desc, sql } from "drizzle-orm";
+import { eq, and, desc, sql, or } from "drizzle-orm";
 import {
   createBillingCheckoutSession,
   createBillingPortalSession,
@@ -10,6 +10,7 @@ import {
 import { verifyApiKey } from "@/lib/api-keys";
 import { logAuditEvent } from "@/lib/audit";
 import { dispatchWebhook } from "@/lib/webhooks";
+import { authenticateAdminOrM2M } from "@/lib/access-control";
 
 export const billingRoutes = new Hono<AppContext>();
 
@@ -146,8 +147,24 @@ billingRoutes.post("/checkout", async (c) => {
   }
 
   const activeOrgId = (session.session as any).activeOrganizationId;
-  const targetType = activeOrgId ? "organization" : "user";
-  const targetId = activeOrgId || session.user.id;
+  const requestedTargetType = body.targetType;
+  let targetType: "organization" | "user" = requestedTargetType || (activeOrgId ? "organization" : "user");
+  let targetId = body.targetId || (targetType === "organization" ? activeOrgId : session.user.id);
+
+  if (targetType === "organization") {
+    if (!targetId) {
+      return c.json({ error: "BadRequest", message: "Organização alvo não especificada." }, 400);
+    }
+    const [membership] = await db
+      .select()
+      .from(schema.member)
+      .where(and(eq(schema.member.organizationId, targetId), eq(schema.member.userId, session.user.id)))
+      .limit(1);
+
+    if (!membership || (membership.role !== "owner" && membership.role !== "admin")) {
+      return c.json({ error: "Forbidden", message: "Permissão insuficiente para gerenciar faturamento desta organização." }, 403);
+    }
+  }
 
   try {
     const result = await createBillingCheckoutSession(db, env, {
@@ -163,6 +180,81 @@ billingRoutes.post("/checkout", async (c) => {
   } catch (err: any) {
     return c.json({ error: "CheckoutFailed", message: err.message }, 400);
   }
+});
+
+/**
+ * POST /api/billing/cancel
+ * Cancel active subscription for user or organization.
+ */
+billingRoutes.post("/cancel", async (c) => {
+  const auth = c.get("auth");
+  const db = c.get("db");
+  const env = c.env;
+
+  const session = await auth.api.getSession({ headers: c.req.raw.headers });
+  if (!session) {
+    return c.json({ error: "Unauthorized", message: "Sessão não encontrada" }, 401);
+  }
+
+  const body = await c.req.json().catch(() => ({}));
+  const activeOrgId = (session.session as any).activeOrganizationId;
+  const targetType = body.targetType || (activeOrgId ? "organization" : "user");
+  const targetId = body.targetId || (targetType === "organization" ? activeOrgId : session.user.id);
+
+  if (targetType === "organization") {
+    const [membership] = await db
+      .select()
+      .from(schema.member)
+      .where(and(eq(schema.member.organizationId, targetId), eq(schema.member.userId, session.user.id)))
+      .limit(1);
+
+    if (!membership || (membership.role !== "owner" && membership.role !== "admin")) {
+      return c.json({ error: "Forbidden", message: "Permissão insuficiente para cancelar a assinatura desta organização." }, 403);
+    }
+  }
+
+  const [sub] = await db
+    .select()
+    .from(schema.billingSubscription)
+    .where(
+      and(
+        eq(schema.billingSubscription.targetType, targetType),
+        eq(schema.billingSubscription.targetId, targetId),
+        sql`${schema.billingSubscription.status} IN ('active', 'trialing')`
+      )
+    )
+    .limit(1);
+
+  if (!sub) {
+    return c.json({ error: "NotFound", message: "Nenhuma assinatura ativa encontrada para cancelamento." }, 404);
+  }
+
+  const now = new Date();
+  await db
+    .update(schema.billingSubscription)
+    .set({
+      cancelAtPeriodEnd: true,
+      canceledAt: now,
+      updatedAt: now,
+    })
+    .where(eq(schema.billingSubscription.id, sub.id));
+
+  await logAuditEvent(db, {
+    action: "billing.subscription_cancel_requested",
+    actorId: session.user.id,
+    targetId,
+    targetType,
+    metadata: { subscriptionId: sub.id },
+  });
+
+  if (env.WEBHOOK_URL) {
+    await dispatchWebhook(env, {
+      event: "subscription.cancel_requested",
+      data: { targetType, targetId, subscriptionId: sub.id },
+    });
+  }
+
+  return c.json({ success: true, message: "Cancelamento solicitado. O plano permanecerá ativo até o final do período atual." });
 });
 
 /**
@@ -459,31 +551,10 @@ billingRoutes.post("/webhook", async (c) => {
 const adminBillingRoutes = new Hono<AppContext>();
 
 adminBillingRoutes.use("*", async (c, next) => {
-  const auth = c.get("auth");
-  const db = c.get("db");
-
-  const authHeader = c.req.header("authorization") || "";
-  const xApiKey = c.req.header("x-api-key") || "";
-  const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : xApiKey.trim();
-
-  if (token && (token.startsWith("sk_") || token.startsWith("ek_"))) {
-    const apiKeyRecord = await verifyApiKey(db, token);
-    if (apiKeyRecord && apiKeyRecord.keyType === "secret" && apiKeyRecord.role === "admin") {
-      return next();
-    }
-  }
-
-  const session = await auth.api.getSession({ headers: c.req.raw.headers });
-  const isSuper = Boolean(
-    (session?.user as any)?.isSuperAdmin ||
-    (session?.user as any)?.role === "super_admin" ||
-    (session?.user as any)?.role === "admin"
-  );
-
-  if (!session || !isSuper) {
+  const adminAuth = await authenticateAdminOrM2M(c);
+  if (!adminAuth) {
     return c.json({ error: "Unauthorized", message: "Acesso restrito ao Super-Admin" }, 403);
   }
-
   await next();
 });
 
@@ -519,12 +590,50 @@ adminBillingRoutes.post("/plans", async (c) => {
     currency: body.currency?.trim()?.toLowerCase() || "usd",
     features: body.features ? JSON.stringify(body.features) : "[]",
     limits: body.limits ? JSON.stringify(body.limits) : "{}",
+    grantedPermissions: body.grantedPermissions ? JSON.stringify(body.grantedPermissions) : "[]",
+    trialDays: body.trialDays ? Number(body.trialDays) : null,
     isPublic: body.isPublic !== false,
     createdAt: now,
     updatedAt: now,
   });
 
   return c.json({ success: true, planId: id });
+});
+
+adminBillingRoutes.patch("/plans/:id", async (c) => {
+  const db = c.get("db");
+  const id = c.req.param("id");
+  const body = await c.req.json().catch(() => ({}));
+
+  const updateData: Record<string, any> = {
+    updatedAt: new Date(),
+  };
+
+  if (body.name !== undefined) updateData.name = body.name.trim();
+  if (body.description !== undefined) updateData.description = body.description?.trim() || null;
+  if (body.stripeProductId !== undefined) updateData.stripeProductId = body.stripeProductId?.trim() || null;
+  if (body.stripePriceIdMonthly !== undefined) updateData.stripePriceIdMonthly = body.stripePriceIdMonthly?.trim() || null;
+  if (body.stripePriceIdYearly !== undefined) updateData.stripePriceIdYearly = body.stripePriceIdYearly?.trim() || null;
+  if (body.priceMonthly !== undefined) updateData.priceMonthly = Number(body.priceMonthly);
+  if (body.priceYearly !== undefined) updateData.priceYearly = Number(body.priceYearly);
+  if (body.currency !== undefined) updateData.currency = body.currency?.trim()?.toLowerCase();
+  if (body.features !== undefined) updateData.features = JSON.stringify(body.features);
+  if (body.limits !== undefined) updateData.limits = JSON.stringify(body.limits);
+  if (body.grantedPermissions !== undefined) updateData.grantedPermissions = JSON.stringify(body.grantedPermissions);
+  if (body.trialDays !== undefined) updateData.trialDays = body.trialDays ? Number(body.trialDays) : null;
+  if (body.isPublic !== undefined) updateData.isPublic = Boolean(body.isPublic);
+
+  const [updated] = await db
+    .update(schema.billingPlan)
+    .set(updateData)
+    .where(eq(schema.billingPlan.id, id))
+    .returning();
+
+  if (!updated) {
+    return c.json({ error: "NotFound", message: "Plano não encontrado." }, 404);
+  }
+
+  return c.json({ success: true, plan: updated });
 });
 
 adminBillingRoutes.delete("/plans/:id", async (c) => {
@@ -547,6 +656,136 @@ adminBillingRoutes.get("/subscriptions", async (c) => {
     .orderBy(desc(schema.billingSubscription.createdAt));
 
   return c.json({ subscriptions: subs });
+});
+
+adminBillingRoutes.post("/subscriptions/assign", async (c) => {
+  const db = c.get("db");
+  const env = c.env;
+  const body = await c.req.json().catch(() => ({}));
+
+  const { targetType, targetId, planId, status = "active", trialDays } = body;
+  if (!targetType || !targetId || !planId) {
+    return c.json({ error: "BadRequest", message: "targetType, targetId e planId são obrigatórios." }, 400);
+  }
+
+  const [plan] = await db
+    .select()
+    .from(schema.billingPlan)
+    .where(or(eq(schema.billingPlan.id, planId), eq(schema.billingPlan.slug, planId)))
+    .limit(1);
+
+  if (!plan) {
+    return c.json({ error: "NotFound", message: "Plano não encontrado." }, 404);
+  }
+
+  const now = new Date();
+  const days = trialDays || plan.trialDays || 30;
+  const periodEnd = new Date(Date.now() + days * 86400 * 1000);
+
+  const [existing] = await db
+    .select()
+    .from(schema.billingSubscription)
+    .where(
+      and(
+        eq(schema.billingSubscription.targetType, targetType),
+        eq(schema.billingSubscription.targetId, targetId)
+      )
+    )
+    .limit(1);
+
+  let subRecord: any;
+  if (existing) {
+    [subRecord] = await db
+      .update(schema.billingSubscription)
+      .set({
+        planId: plan.id,
+        status,
+        currentPeriodStart: now,
+        currentPeriodEnd: periodEnd,
+        cancelAtPeriodEnd: false,
+        canceledAt: null,
+        updatedAt: now,
+      })
+      .where(eq(schema.billingSubscription.id, existing.id))
+      .returning();
+  } else {
+    const subId = `sub_${crypto.randomUUID()}`;
+    [subRecord] = await db
+      .insert(schema.billingSubscription)
+      .values({
+        id: subId,
+        targetType,
+        targetId,
+        planId: plan.id,
+        status,
+        stripeCustomerId: `cus_manual_${targetId}`,
+        stripeSubscriptionId: `sub_manual_${crypto.randomUUID().slice(0, 8)}`,
+        currentPeriodStart: now,
+        currentPeriodEnd: periodEnd,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .returning();
+  }
+
+  await logAuditEvent(db, {
+    action: "billing.subscription_manually_assigned",
+    targetId,
+    targetType,
+    metadata: { planId: plan.id, planSlug: plan.slug, status },
+  });
+
+  if (env.WEBHOOK_URL) {
+    await dispatchWebhook(env, {
+      event: "subscription.assigned",
+      data: { targetType, targetId, planSlug: plan.slug, status },
+    });
+  }
+
+  return c.json({ success: true, subscription: subRecord });
+});
+
+adminBillingRoutes.post("/subscriptions/:id/cancel", async (c) => {
+  const db = c.get("db");
+  const env = c.env;
+  const id = c.req.param("id");
+
+  const [existing] = await db
+    .select()
+    .from(schema.billingSubscription)
+    .where(eq(schema.billingSubscription.id, id))
+    .limit(1);
+
+  if (!existing) {
+    return c.json({ error: "NotFound", message: "Assinatura não encontrada." }, 404);
+  }
+
+  const now = new Date();
+  const [updated] = await db
+    .update(schema.billingSubscription)
+    .set({
+      status: "canceled",
+      canceledAt: now,
+      updatedAt: now,
+    })
+    .where(eq(schema.billingSubscription.id, id))
+    .returning();
+
+  await logAuditEvent(db, {
+    action: "billing.subscription_canceled_by_admin",
+    targetId: existing.targetId,
+    targetType: existing.targetType as any,
+    metadata: { subscriptionId: id },
+  });
+
+  if (env.WEBHOOK_URL) {
+    await dispatchWebhook(env, {
+      event: "subscription.canceled",
+      data: { targetType: existing.targetType, targetId: existing.targetId, subscriptionId: id },
+    });
+  }
+
+  return c.json({ success: true, subscription: updated });
 });
 
 billingRoutes.route("/admin", adminBillingRoutes);

@@ -79,10 +79,11 @@ describe("First-Access Setup & Bootstrapping Integration Tests", () => {
     expect(setupRes.status).toBe(201);
     const setupData = (await setupRes.json()) as any;
     expect(setupData.success).toBe(true);
-    expect(setupData.user.role).toBe("admin");
+    expect(setupData.user.role).toBe("super_admin");
+    expect(setupData.user.isSuperAdmin).toBe(true);
     expect(setupData.user.email).toBe("admin@empresa.com");
 
-    // Verify in D1 database that user exists and has role 'admin' and emailVerified = true
+    // Verify in D1 database that user exists and has role 'super_admin' and emailVerified = true
     const db = createDb(mockEnv.DB);
     const [userRecord] = await db
       .select()
@@ -90,7 +91,8 @@ describe("First-Access Setup & Bootstrapping Integration Tests", () => {
       .where(eq(schema.user.email, "admin@empresa.com"));
 
     expect(userRecord).toBeDefined();
-    expect(userRecord.role).toBe("admin");
+    expect(userRecord.role).toBe("super_admin");
+    expect(Boolean(userRecord.isSuperAdmin)).toBe(true);
     expect(userRecord.emailVerified).toBe(true);
 
     // Verify audit log has system.bootstrapped entry

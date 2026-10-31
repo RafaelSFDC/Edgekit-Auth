@@ -130,6 +130,7 @@ export const organization = sqliteTable("organization", {
   logo: text("logo"),
   createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
   metadata: text("metadata"),
+  maxMembers: integer("max_members"),
 });
 
 export const member = sqliteTable("member", {

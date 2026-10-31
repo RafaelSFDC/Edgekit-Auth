@@ -67,6 +67,8 @@ export interface Bindings {
   FEATURE_RBAC?: string;
   FEATURE_PASSKEYS?: string;
   FEATURE_MFA?: string;
+  FEATURE_EMAIL_OTP?: string;
+  FEATURE_MAGIC_LINK?: string;
 }
 
 export interface Variables {

@@ -62,4 +62,47 @@ export async function dispatchWebhook(
   } catch (err: any) {
     console.error(`[Webhook] Falha ao despachar evento '${event.event}':`, err.message);
   }
+
+  // Multi-endpoint dispatching via registered database endpoints
+  if (env.DB) {
+    try {
+      const { createDb } = await import("@/db");
+      const schema = await import("@/db/schema");
+      const { eq } = await import("drizzle-orm");
+      const db = createDb(env.DB);
+      const endpoints = await db
+        .select()
+        .from(schema.webhookEndpoint)
+        .where(eq(schema.webhookEndpoint.isActive, true));
+
+      for (const ep of endpoints) {
+        let subscribedEvents: string[] = ["*"];
+        try {
+          subscribedEvents = JSON.parse(ep.events || "[\"*\"]");
+        } catch {}
+
+        const matches =
+          subscribedEvents.includes("*") ||
+          subscribedEvents.includes(event.event) ||
+          subscribedEvents.some((sub) => sub.endsWith(".*") && event.event.startsWith(sub.slice(0, -2)));
+
+        if (matches) {
+          const epHeaders: Record<string, string> = {
+            "Content-Type": "application/json",
+            "User-Agent": "Edgekit-Auth-Webhooks/1.0",
+          };
+          if (ep.secret) {
+            epHeaders["X-Edgekit-Signature"] = await signWebhookPayload(ep.secret, payloadStr);
+          }
+          fetch(ep.url, {
+            method: "POST",
+            headers: epHeaders,
+            body: payloadStr,
+          }).catch((err) => {
+            console.error(`[Webhook] Failed to dispatch to ${ep.url}:`, err.message);
+          });
+        }
+      }
+    } catch {}
+  }
 }

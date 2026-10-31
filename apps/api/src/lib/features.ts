@@ -6,6 +6,8 @@ export interface FeatureFlags {
   rbac: boolean;
   passkeys: boolean;
   mfa: boolean;
+  emailOTP: boolean;
+  magicLink: boolean;
 }
 
 /**
@@ -19,5 +21,7 @@ export function getFeatureFlags(env?: Partial<Bindings>): FeatureFlags {
     rbac: env?.FEATURE_RBAC !== "false",
     passkeys: env?.FEATURE_PASSKEYS !== "false",
     mfa: env?.FEATURE_MFA !== "false",
+    emailOTP: env?.FEATURE_EMAIL_OTP !== "false",
+    magicLink: env?.FEATURE_MAGIC_LINK !== "false",
   };
 }

@@ -5,39 +5,16 @@ import { eq, sql, gt, desc } from "drizzle-orm";
 import { generateApiKey, verifyApiKey } from "@/lib/api-keys";
 import { logAuditEvent } from "@/lib/audit";
 import { signWebhookPayload } from "@/lib/webhooks";
+import { authenticateAdminOrM2M, isUserSuperAdmin } from "@/lib/access-control";
 
 export const adminRoutes = new Hono<AppContext>();
 
 /**
- * Middleware de Segurança: Exige sessão ativa com papel 'admin' OU M2M API Key válida com papel 'admin'.
+ * Middleware de Segurança: Exige sessão ativa de Super Admin OU M2M API Key válida com papel 'admin'.
  */
 adminRoutes.use("*", async (c, next) => {
-  const auth = c.get("auth");
-  const db = c.get("db");
-
-  // 1. Verificar autenticação via M2M Secret API Key (Header Authorization ou x-api-key)
-  const authHeader = c.req.header("authorization") || "";
-  const xApiKey = c.req.header("x-api-key") || "";
-  const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : xApiKey.trim();
-
-  if (token && (token.startsWith("sk_") || token.startsWith("ek_"))) {
-    const apiKeyRecord = await verifyApiKey(db, token);
-    if (apiKeyRecord && apiKeyRecord.keyType === "secret" && apiKeyRecord.role === "admin") {
-      c.set("userId", apiKeyRecord.createdById || "system");
-      c.set("apiKeyId", apiKeyRecord.id);
-      return next();
-    }
-  }
-
-  // 2. Verificar autenticação via Sessão do Better Auth (Cookie)
-  const session = await auth.api.getSession({ headers: c.req.raw.headers });
-  const isSuperAdmin = Boolean(
-    (session?.user as any)?.isSuperAdmin ||
-    (session?.user as any)?.role === "super_admin" ||
-    (session?.user as any)?.role === "admin"
-  );
-
-  if (!session || !isSuperAdmin) {
+  const adminAuth = await authenticateAdminOrM2M(c);
+  if (!adminAuth) {
     return c.json(
       {
         error: "Unauthorized",
@@ -46,9 +23,6 @@ adminRoutes.use("*", async (c, next) => {
       403
     );
   }
-
-  c.set("userId", session.user.id);
-  c.set("sessionId", session.session.id);
   await next();
 });
 
@@ -64,7 +38,7 @@ adminRoutes.get("/stats", async (c) => {
   const [adminsRes] = await db
     .select({ count: sql<number>`count(*)` })
     .from(schema.user)
-    .where(sql`${schema.user.role} IN ('admin', 'super_admin') OR ${schema.user.isSuperAdmin} = 1`);
+    .where(sql`${schema.user.role} = 'super_admin' OR ${schema.user.isSuperAdmin} = 1`);
   const [bannedRes] = await db
     .select({ count: sql<number>`count(*)` })
     .from(schema.user)
@@ -604,4 +578,265 @@ adminRoutes.post("/webhooks/test", async (c) => {
     latencyMs,
     error: errorMsg,
   });
+});
+
+/**
+ * GET /api/admin/webhooks/endpoints
+ * Lists all registered webhook endpoints.
+ */
+adminRoutes.get("/webhooks/endpoints", async (c) => {
+  const db = c.get("db");
+  const endpoints = await db
+    .select()
+    .from(schema.webhookEndpoint)
+    .orderBy(desc(schema.webhookEndpoint.createdAt));
+
+  return c.json({
+    endpoints: endpoints.map((ep) => {
+      let events: string[] = ["*"];
+      try {
+        events = JSON.parse(ep.events || "[\"*\"]");
+      } catch {}
+      return {
+        ...ep,
+        events,
+      };
+    }),
+  });
+});
+
+/**
+ * POST /api/admin/webhooks/endpoints
+ * Registers a new webhook endpoint.
+ */
+adminRoutes.post("/webhooks/endpoints", async (c) => {
+  const db = c.get("db");
+  const body = await c.req.json().catch(() => ({}));
+
+  const url = body.url?.trim();
+  if (!url || !url.startsWith("http")) {
+    return c.json({ error: "BadRequest", message: "URL do webhook inválida." }, 400);
+  }
+
+  const id = `whe_${crypto.randomUUID()}`;
+  const secret = body.secret?.trim() || `whsec_${crypto.randomUUID().replace(/-/g, "")}`;
+  const events = Array.isArray(body.events) && body.events.length > 0 ? body.events : ["*"];
+  const now = new Date();
+
+  const [created] = await db
+    .insert(schema.webhookEndpoint)
+    .values({
+      id,
+      url,
+      secret,
+      description: body.description?.trim() || null,
+      events: JSON.stringify(events),
+      isActive: body.isActive !== false,
+      createdAt: now,
+      updatedAt: now,
+    })
+    .returning();
+
+  await logAuditEvent(db, {
+    action: "webhook.endpoint_created",
+    actorId: c.get("userId"),
+    targetId: id,
+    targetType: "webhook",
+    metadata: { url, events },
+  });
+
+  return c.json({ success: true, endpoint: { ...created, events } }, 201);
+});
+
+/**
+ * DELETE /api/admin/webhooks/endpoints/:id
+ * Deletes a registered webhook endpoint.
+ */
+adminRoutes.delete("/webhooks/endpoints/:id", async (c) => {
+  const db = c.get("db");
+  const id = c.req.param("id");
+
+  const [existing] = await db
+    .select()
+    .from(schema.webhookEndpoint)
+    .where(eq(schema.webhookEndpoint.id, id))
+    .limit(1);
+
+  if (!existing) {
+    return c.json({ error: "NotFound", message: "Endpoint de webhook não encontrado." }, 404);
+  }
+
+  await db.delete(schema.webhookEndpoint).where(eq(schema.webhookEndpoint.id, id));
+
+  await logAuditEvent(db, {
+    action: "webhook.endpoint_deleted",
+    actorId: c.get("userId"),
+    targetId: id,
+    targetType: "webhook",
+    metadata: { url: existing.url },
+  });
+
+  return c.json({ success: true, message: "Endpoint excluído com sucesso." });
+});
+
+/**
+ * POST /api/admin/webhooks/endpoints/:id/test
+ * Sends a test ping to a specific registered webhook endpoint.
+ */
+adminRoutes.post("/webhooks/endpoints/:id/test", async (c) => {
+  const db = c.get("db");
+  const id = c.req.param("id");
+
+  const [ep] = await db
+    .select()
+    .from(schema.webhookEndpoint)
+    .where(eq(schema.webhookEndpoint.id, id))
+    .limit(1);
+
+  if (!ep) {
+    return c.json({ error: "NotFound", message: "Endpoint de webhook não encontrado." }, 404);
+  }
+
+  const start = Date.now();
+  let status = 0;
+  let success = false;
+  let errorMsg: string | null = null;
+
+  try {
+    const payloadStr = JSON.stringify({
+      id: `evt_${crypto.randomUUID()}`,
+      event: "test.ping",
+      createdAt: Date.now(),
+      data: {
+        message: "Ping de teste sintético enviado pelo Edgekit Auth Console",
+        endpointId: ep.id,
+        timestamp: new Date().toISOString(),
+      },
+    });
+
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      "User-Agent": "Edgekit-Auth-Webhooks/1.0",
+    };
+
+    if (ep.secret) {
+      headers["X-Edgekit-Signature"] = await signWebhookPayload(ep.secret, payloadStr);
+    }
+
+    const res = await fetch(ep.url, {
+      method: "POST",
+      headers,
+      body: payloadStr,
+    });
+
+    status = res.status;
+    success = res.ok;
+  } catch (err: any) {
+    errorMsg = err.message || "Falha ao conectar com o servidor webhook";
+  }
+
+  const latencyMs = Date.now() - start;
+
+  return c.json({
+    success,
+    status,
+    latencyMs,
+    error: errorMsg,
+  });
+});
+
+/**
+ * ============================================================================
+ * INSTALLATION SETTINGS
+ * ============================================================================
+ */
+
+/**
+ * GET /api/admin/settings
+ * Retrieves installation configuration singleton.
+ */
+adminRoutes.get("/settings", async (c) => {
+  const db = c.get("db");
+
+  let [setting] = await db
+    .select()
+    .from(schema.installationSettings)
+    .where(eq(schema.installationSettings.id, "default"))
+    .limit(1);
+
+  if (!setting) {
+    // Initialize default singleton settings
+    const now = new Date();
+    [setting] = await db
+      .insert(schema.installationSettings)
+      .values({
+        id: "default",
+        instanceName: "Edgekit Auth",
+        billingTargetMode: "both",
+        allowUserOrgCreation: true,
+        defaultOrgMaxMembers: 5,
+        allowSelfSignup: true,
+        updatedAt: now,
+      })
+      .returning();
+  }
+
+  return c.json({ settings: setting });
+});
+
+/**
+ * PATCH /api/admin/settings
+ * Updates installation configuration singleton.
+ */
+adminRoutes.patch("/settings", async (c) => {
+  const db = c.get("db");
+  const body = await c.req.json().catch(() => ({}));
+
+  let [setting] = await db
+    .select()
+    .from(schema.installationSettings)
+    .where(eq(schema.installationSettings.id, "default"))
+    .limit(1);
+
+  const updateFields: Record<string, any> = {
+    updatedAt: new Date(),
+  };
+
+  if (body.instanceName !== undefined) updateFields.instanceName = body.instanceName.trim();
+  if (body.billingTargetMode !== undefined) updateFields.billingTargetMode = body.billingTargetMode;
+  if (body.allowUserOrgCreation !== undefined) updateFields.allowUserOrgCreation = Boolean(body.allowUserOrgCreation);
+  if (body.defaultOrgMaxMembers !== undefined) updateFields.defaultOrgMaxMembers = body.defaultOrgMaxMembers ? Number(body.defaultOrgMaxMembers) : null;
+  if (body.allowSelfSignup !== undefined) updateFields.allowSelfSignup = Boolean(body.allowSelfSignup);
+
+  let updatedSetting: any;
+  if (!setting) {
+    [updatedSetting] = await db
+      .insert(schema.installationSettings)
+      .values({
+        id: "default",
+        instanceName: "Edgekit Auth",
+        billingTargetMode: "both",
+        allowUserOrgCreation: true,
+        defaultOrgMaxMembers: 5,
+        allowSelfSignup: true,
+        ...updateFields,
+      })
+      .returning();
+  } else {
+    [updatedSetting] = await db
+      .update(schema.installationSettings)
+      .set(updateFields)
+      .where(eq(schema.installationSettings.id, "default"))
+      .returning();
+  }
+
+  await logAuditEvent(db, {
+    action: "installation.settings_updated",
+    actorId: c.get("userId"),
+    targetId: "default",
+    targetType: "system",
+    metadata: { updatedFields: Object.keys(updateFields) },
+  });
+
+  return c.json({ success: true, settings: updatedSetting });
 });

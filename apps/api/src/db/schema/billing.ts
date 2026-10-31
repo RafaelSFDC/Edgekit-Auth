@@ -17,6 +17,8 @@ export const billingPlan = sqliteTable("billing_plan", {
   currency: text("currency").notNull().default("usd"),
   features: text("features"), // JSON array of entitlement strings: ["analytics", "export_pdf", "unlimited_members"]
   limits: text("limits"), // JSON object: {"seats": 10, "storage_gb": 50}
+  grantedPermissions: text("granted_permissions"), // JSON array of permission keys granted by the plan
+  trialDays: integer("trial_days").default(0),
   isPublic: integer("is_public", { mode: "boolean" }).notNull().default(true),
   createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
   updatedAt: integer("updated_at", { mode: "timestamp_ms" }),
@@ -37,7 +39,9 @@ export const billingSubscription = sqliteTable("billing_subscription", {
   status: text("status").notNull().default("active"), // "active", "trialing", "past_due", "canceled"
   currentPeriodStart: integer("current_period_start", { mode: "timestamp_ms" }),
   currentPeriodEnd: integer("current_period_end", { mode: "timestamp_ms" }),
+  trialEndsAt: integer("trial_ends_at", { mode: "timestamp_ms" }),
   cancelAtPeriodEnd: integer("cancel_at_period_end", { mode: "boolean" }).default(false),
+  canceledAt: integer("canceled_at", { mode: "timestamp_ms" }),
   createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
   updatedAt: integer("updated_at", { mode: "timestamp_ms" }),
 });

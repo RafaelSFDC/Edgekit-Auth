@@ -51,6 +51,15 @@ export interface VerifyTokenOptions {
   jwksOverride?: JWTVerifyGetKey;
 }
 
+export interface HasQuery {
+  role?: string;
+  permission?: string;
+  orgRole?: string;
+  orgPermission?: string;
+  feature?: string;
+  plan?: string;
+}
+
 export class EdgekitAuth {
   public readonly apiUrl: string;
   public readonly secretKey?: string;
@@ -116,6 +125,52 @@ export class EdgekitAuth {
   }
 
   /**
+   * Checks authorization predicates against a verified session.
+   * Matches role, permission, orgRole, orgPermission, feature or plan.
+   */
+  public has(session: EdgekitSessionPayload | null | undefined, query: HasQuery): boolean {
+    if (!session) return false;
+
+    if (query.role && !session.roles?.includes(query.role)) {
+      return false;
+    }
+
+    if (query.permission) {
+      const perms = session.permissions || [];
+      if (!perms.includes(query.permission) && !perms.includes("*")) {
+        return false;
+      }
+    }
+
+    if (query.orgRole) {
+      if (session.orgRole !== query.orgRole) {
+        return false;
+      }
+    }
+
+    if (query.orgPermission) {
+      if (session.orgRole === "owner") {
+        // Owner has full org permissions
+      } else {
+        const orgPerms = session.orgPermissions || [];
+        if (!orgPerms.includes(query.orgPermission) && !orgPerms.includes("*")) {
+          return false;
+        }
+      }
+    }
+
+    if (query.feature && !session.entitlements?.includes(query.feature)) {
+      return false;
+    }
+
+    if (query.plan && session.plan !== query.plan) {
+      return false;
+    }
+
+    return true;
+  }
+
+  /**
    * Verifies an incoming webhook payload using HMAC-SHA256 signature (X-Edgekit-Signature).
    */
   public async verifyWebhookSignature(
@@ -142,6 +197,145 @@ export class EdgekitAuth {
 
     return hex === signature.trim().toLowerCase();
   }
+
+  /**
+   * Internal helper for executing authenticated M2M requests with Secret Key
+   */
+  private async m2mFetch<T = any>(endpoint: string, options: RequestInit = {}): Promise<T> {
+    if (!this.secretKey) {
+      throw new Error("[EdgekitAuth] secretKey is required to make M2M API calls.");
+    }
+
+    const url = `${this.apiUrl}${endpoint.startsWith("/") ? endpoint : `/${endpoint}`}`;
+    const headers = new Headers(options.headers);
+    headers.set("Authorization", `Bearer ${this.secretKey}`);
+    headers.set("Content-Type", "application/json");
+
+    const res = await fetch(url, {
+      ...options,
+      headers,
+    });
+
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      throw new Error(data.message || `M2M Request Failed with status ${res.status}`);
+    }
+
+    return data as T;
+  }
+
+  /**
+   * M2M User Management APIs
+   */
+  public readonly users = {
+    list: (params?: { page?: number; limit?: number; search?: string }) => {
+      const q = new URLSearchParams();
+      if (params?.page) q.set("page", String(params.page));
+      if (params?.limit) q.set("limit", String(params.limit));
+      if (params?.search) q.set("search", params.search);
+      return this.m2mFetch<{ users: any[]; pagination: any }>(`/api/v1/users?${q.toString()}`);
+    },
+    get: (userId: string) => this.m2mFetch<{ user: any }>(`/api/v1/users/${userId}`),
+    update: (userId: string, data: Record<string, any>) =>
+      this.m2mFetch<{ success: boolean; user: any }>(`/api/v1/users/${userId}`, {
+        method: "PATCH",
+        body: JSON.stringify(data),
+      }),
+    delete: (userId: string) =>
+      this.m2mFetch<{ success: boolean }>(`/api/v1/users/${userId}`, {
+        method: "DELETE",
+      }),
+  };
+
+  /**
+   * M2M Organization Management APIs
+   */
+  public readonly organizations = {
+    list: (params?: { page?: number; limit?: number }) => {
+      const q = new URLSearchParams();
+      if (params?.page) q.set("page", String(params.page));
+      if (params?.limit) q.set("limit", String(params.limit));
+      return this.m2mFetch<{ organizations: any[]; pagination?: any }>(`/api/v1/organizations?${q.toString()}`);
+    },
+    get: (orgId: string) => this.m2mFetch<{ organization: any }>(`/api/v1/organizations/${orgId}`),
+    create: (data: { name: string; slug?: string; logo?: string; metadata?: Record<string, any>; maxMembers?: number }) =>
+      this.m2mFetch<{ success: boolean; organization: any }>("/api/v1/organizations", {
+        method: "POST",
+        body: JSON.stringify(data),
+      }),
+    update: (orgId: string, data: { name?: string; slug?: string; logo?: string; metadata?: Record<string, any>; maxMembers?: number }) =>
+      this.m2mFetch<{ success: boolean; organization: any }>(`/api/v1/organizations/${orgId}`, {
+        method: "PATCH",
+        body: JSON.stringify(data),
+      }),
+    delete: (orgId: string) =>
+      this.m2mFetch<{ success: boolean }>(`/api/v1/organizations/${orgId}`, {
+        method: "DELETE",
+      }),
+    transferOwnership: (orgId: string, newOwnerId: string) =>
+      this.m2mFetch<{ success: boolean }>(`/api/v1/organizations/${orgId}/transfer-ownership`, {
+        method: "POST",
+        body: JSON.stringify({ newOwnerId }),
+      }),
+    members: {
+      list: (orgId: string) => this.m2mFetch<{ members: any[] }>(`/api/v1/organizations/${orgId}/members`),
+      updateRole: (orgId: string, memberId: string, role: string) =>
+        this.m2mFetch<{ success: boolean; member: any }>(`/api/v1/organizations/${orgId}/members/${memberId}`, {
+          method: "PATCH",
+          body: JSON.stringify({ role }),
+        }),
+      remove: (orgId: string, memberId: string) =>
+        this.m2mFetch<{ success: boolean }>(`/api/v1/organizations/${orgId}/members/${memberId}`, {
+          method: "DELETE",
+        }),
+    },
+    invitations: {
+      create: (orgId: string, data: { email: string; role?: string }) =>
+        this.m2mFetch<{ success: boolean; invitation: any }>(`/api/v1/organizations/${orgId}/invitations`, {
+          method: "POST",
+          body: JSON.stringify(data),
+        }),
+      cancel: (orgId: string, inviteId: string) =>
+        this.m2mFetch<{ success: boolean }>(`/api/v1/organizations/${orgId}/invitations/${inviteId}`, {
+          method: "DELETE",
+        }),
+    },
+  };
+
+  /**
+   * M2M Billing & Subscription Management APIs
+   */
+  public readonly billing = {
+    plans: {
+      list: () => this.m2mFetch<{ plans: any[] }>("/api/billing/plans"),
+      create: (data: Record<string, any>) =>
+        this.m2mFetch<{ success: boolean; planId: string }>("/api/billing/admin/plans", {
+          method: "POST",
+          body: JSON.stringify(data),
+        }),
+      update: (id: string, data: Record<string, any>) =>
+        this.m2mFetch<{ success: boolean; plan: any }>(`/api/billing/admin/plans/${id}`, {
+          method: "PATCH",
+          body: JSON.stringify(data),
+        }),
+      delete: (id: string) =>
+        this.m2mFetch<{ success: boolean }>(`/api/billing/admin/plans/${id}`, {
+          method: "DELETE",
+        }),
+    },
+    subscriptions: {
+      list: () => this.m2mFetch<{ subscriptions: any[] }>("/api/billing/admin/subscriptions"),
+      assign: (data: { targetType: "organization" | "user"; targetId: string; planId: string; status?: string; trialDays?: number }) =>
+        this.m2mFetch<{ success: boolean; subscription: any }>("/api/billing/admin/subscriptions/assign", {
+          method: "POST",
+          body: JSON.stringify(data),
+        }),
+      cancel: (subscriptionId: string) =>
+        this.m2mFetch<{ success: boolean }>(`/api/billing/admin/subscriptions/${subscriptionId}/cancel`, {
+          method: "POST",
+        }),
+    },
+  };
 }
 
 /**

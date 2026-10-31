@@ -69,8 +69,14 @@ export async function createBillingCheckoutSession(
       };
     } catch (err: any) {
       console.error("[Stripe] Erro ao criar checkout session:", err);
-      // Fallback to simulation if network error
+      if (env.ENVIRONMENT === "production") {
+        throw new Error(err.message || "Falha na comunicação com o Stripe.");
+      }
     }
+  }
+
+  if (env.ENVIRONMENT === "production") {
+    throw new Error("Stripe Secret Key e Price IDs não estão configurados no ambiente de produção.");
   }
 
   // Developer Simulation Mode: Directly provision or update subscription in D1

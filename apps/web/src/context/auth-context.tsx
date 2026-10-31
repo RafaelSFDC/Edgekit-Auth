@@ -22,8 +22,8 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const user = sessionData?.user ?? null;
   const session = sessionData?.session ?? null;
   const isAuthenticated = Boolean(user);
-  const isAdmin = (user as any)?.role === 'admin' || (user as any)?.role === 'super_admin';
-  const isSuperAdmin = Boolean((user as any)?.isSuperAdmin || isAdmin);
+  const isSuperAdmin = Boolean((user as any)?.isSuperAdmin === true || (user as any)?.role === 'super_admin');
+  const isAdmin = isSuperAdmin;
   const isImpersonating = Boolean(session?.impersonatedBy);
 
   const signOut = useCallback(async () => {
