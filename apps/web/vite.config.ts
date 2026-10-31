@@ -9,6 +9,34 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     emptyOutDir: true,
+    chunkSizeWarningLimit: 500,
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (id.includes('node_modules')) {
+            if (/[\\/]node_modules[\\/](react|react-dom)[\\/]/.test(id)) {
+              return 'vendor-react';
+            }
+            if (id.includes('@tanstack')) {
+              return 'vendor-tanstack';
+            }
+            if (
+              id.includes('@base-ui') ||
+              id.includes('lucide-react') ||
+              id.includes('sonner') ||
+              id.includes('class-variance-authority') ||
+              id.includes('clsx') ||
+              id.includes('tailwind-merge')
+            ) {
+              return 'vendor-ui';
+            }
+            if (id.includes('better-auth') || id.includes('@better-auth')) {
+              return 'vendor-auth';
+            }
+          }
+        },
+      },
+    },
   },
   resolve: {
     alias: {

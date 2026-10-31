@@ -89,10 +89,27 @@ export function createAuth(env: Bindings, request?: Request) {
       },
     },
     rateLimit: {
-      enabled: env.ENVIRONMENT !== "test" && process.env.NODE_ENV !== "test",
-      window: 60,
-      max: 100,
+      enabled:
+        env.RATE_LIMIT_ENABLED === "true"
+          ? true
+          : env.RATE_LIMIT_ENABLED === "false"
+          ? false
+          : env.ENVIRONMENT !== "test" && process.env.NODE_ENV !== "test",
+      window: env.RATE_LIMIT_WINDOW ? Number(env.RATE_LIMIT_WINDOW) : 60,
+      max: env.RATE_LIMIT_MAX ? Number(env.RATE_LIMIT_MAX) : 100,
       storage: "memory",
+      customRules: env.RATE_LIMIT_MAX
+        ? {
+            "/sign-in/*": {
+              window: env.RATE_LIMIT_WINDOW ? Number(env.RATE_LIMIT_WINDOW) : 10,
+              max: Number(env.RATE_LIMIT_MAX),
+            },
+            "/sign-up/*": {
+              window: env.RATE_LIMIT_WINDOW ? Number(env.RATE_LIMIT_WINDOW) : 10,
+              max: Number(env.RATE_LIMIT_MAX),
+            },
+          }
+        : undefined,
     },
     advanced: {
       crossSubDomainCookies: env.COOKIE_DOMAIN

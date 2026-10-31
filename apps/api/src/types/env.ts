@@ -46,6 +46,11 @@ export interface Bindings {
   // Webhooks
   WEBHOOK_URL?: string;
   WEBHOOK_SECRET?: string;
+
+  // Rate Limiting (Memory / Cloudflare Worker)
+  RATE_LIMIT_ENABLED?: string;
+  RATE_LIMIT_MAX?: string;
+  RATE_LIMIT_WINDOW?: string;
 }
 
 export interface Variables {
