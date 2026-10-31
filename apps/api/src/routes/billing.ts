@@ -5,7 +5,6 @@ import { eq, and, desc } from "drizzle-orm";
 import { createBillingCheckoutSession, createBillingPortalSession } from "@/lib/billing";
 import { verifyApiKey } from "@/lib/api-keys";
 import { logAuditEvent } from "@/lib/audit";
-import { dispatchWebhook } from "@/lib/webhooks";
 
 export const billingRoutes = new Hono<AppContext>();
 
@@ -185,8 +184,6 @@ billingRoutes.post("/portal", async (c) => {
  */
 billingRoutes.post("/webhook", async (c) => {
   const db = c.get("db");
-  const env = c.env;
-  const sig = c.req.header("stripe-signature") || "";
 
   const rawBody = await c.req.text();
   let event: any;

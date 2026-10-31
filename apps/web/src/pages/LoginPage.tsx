@@ -4,7 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import { authClient } from '../lib/auth-client';
 import { EdgekitLogo } from '../components/common/EdgekitLogo';
 import { useI18n } from '../i18n/context';
-import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
+import { Card, CardHeader, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -454,7 +454,6 @@ export const LoginPage: React.FC = () => {
                     <Input
                       id="twoFactorCode"
                       type="text"
-                      autoFocus
                       value={twoFactorCode}
                       onChange={(e) => setTwoFactorCode(e.target.value)}
                       placeholder={isBackupCodeMode ? 'Ex: a1b2c3d4' : '000000'}

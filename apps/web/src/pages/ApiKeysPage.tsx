@@ -30,17 +30,15 @@ import {
   Plus,
   Copy,
   Check,
-  Trash2,
   Loader2,
   ShieldAlert,
-  ShieldCheck,
   CheckCircle2,
-  Terminal,
   Zap,
 } from 'lucide-react';
 
 export const ApiKeysPage: React.FC = () => {
   const queryClient = useQueryClient();
+  const [now] = useState(() => Date.now());
 
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [newKeyForm, setNewKeyForm] = useState({
@@ -199,8 +197,7 @@ export const ApiKeysPage: React.FC = () => {
                 <TableBody>
                   {apiKeys.map((k) => {
                     const isRevoked = Boolean(k.revokedAt);
-                    const isExpired = k.expiresAt && new Date(k.expiresAt).getTime() < Date.now();
-                    const isLive = k.prefix === 'ek_live';
+                    const isExpired = k.expiresAt && new Date(k.expiresAt).getTime() < now;
 
                     return (
                       <TableRow key={k.id}>
@@ -314,8 +311,10 @@ export const ApiKeysPage: React.FC = () => {
             </div>
 
             <div className="space-y-1">
-              <Label className="text-xs">Tipo de Chave & Ambiente</Label>
+              <Label htmlFor="key-type-select" className="text-xs">Tipo de Chave & Ambiente</Label>
               <select
+                id="key-type-select"
+                aria-label="Tipo de Chave & Ambiente"
                 value={newKeyForm.prefix}
                 onChange={(e) => setNewKeyForm({ ...newKeyForm, prefix: e.target.value })}
                 className="w-full h-9 rounded-md border border-input bg-transparent px-3 text-xs shadow-xs focus:outline-hidden focus:ring-1 focus:ring-ring"

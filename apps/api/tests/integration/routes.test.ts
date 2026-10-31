@@ -271,7 +271,7 @@ describe("Edgekit Auth (Better Auth) Integration Tests", () => {
       const envWithAssets: Bindings = {
         ...mockEnv,
         ASSETS: {
-          fetch: async (req: Request) => {
+          fetch: async (_req: Request) => {
             assetFetched = true;
             return new Response("<!doctype html><html><body>Dashboard</body></html>", {
               status: 200,

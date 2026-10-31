@@ -64,7 +64,7 @@ const defaultOrgRoles = {
   }),
 };
 
-export function createAuth(env: Bindings, request?: Request) {
+export function createAuth(env: Bindings, _request?: Request) {
   const db = createDb(env.DB);
   const baseURL = env.BETTER_AUTH_URL || env.APP_URL || "http://localhost:8787";
   const secret =
@@ -515,7 +515,7 @@ export function createAuth(env: Bindings, request?: Request) {
         jwt: {
           definePayload: async (session) => {
             const userId = session.user.id;
-            let orgId = (session.session as any).activeOrganizationId || null;
+            const orgId = (session.session as any).activeOrganizationId || null;
             let orgRole: string | null = null;
             let orgSlug: string | null = null;
             let orgPermissions: string[] = [];

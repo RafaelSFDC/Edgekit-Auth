@@ -4,11 +4,8 @@ import {
   Sun,
   Moon,
   LogOut,
-  User,
-  ShieldCheck,
-  Sparkles,
-  Zap,
   Loader2,
+  Sparkles,
 } from 'lucide-react';
 import { EdgekitLogo } from '../common/EdgekitLogo';
 import { useI18n } from '../../i18n/context';
@@ -33,14 +30,13 @@ import {
   Breadcrumb,
   BreadcrumbList,
   BreadcrumbItem,
-  BreadcrumbLink,
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from '@/components/ui/breadcrumb';
 import { toast } from 'sonner';
 
 export const TopHeader: React.FC = () => {
-  const { locale, toggleLocale, t } = useI18n();
+  const { toggleLocale, t } = useI18n();
   const { resolvedTheme, toggleTheme } = useTheme();
   const { user, isImpersonating, signOut } = useAuth();
   const { state } = useSidebar();

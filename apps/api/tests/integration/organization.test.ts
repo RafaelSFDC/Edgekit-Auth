@@ -6,7 +6,6 @@ import type { Bindings } from "@/types/env";
 describe("Organization & RBAC Integration Tests", () => {
   let mockEnv: Bindings;
   let sessionCookie: string;
-  let ownerUser: any;
 
   beforeEach(async () => {
     mockEnv = {
@@ -33,8 +32,6 @@ describe("Organization & RBAC Integration Tests", () => {
     );
 
     expect(signUpRes.status).toBe(200);
-    const signUpBody = (await signUpRes.json()) as any;
-    ownerUser = signUpBody.user;
     sessionCookie = signUpRes.headers.get("set-cookie") || "";
   });
 

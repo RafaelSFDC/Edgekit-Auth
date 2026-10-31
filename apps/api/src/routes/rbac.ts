@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import type { AppContext } from "@/types/env";
 import * as schema from "@/db/schema";
-import { eq, and, sql } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { verifyApiKey } from "@/lib/api-keys";
 
 export const rbacRoutes = new Hono<AppContext>();

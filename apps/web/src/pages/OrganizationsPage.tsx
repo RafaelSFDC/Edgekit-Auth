@@ -4,7 +4,7 @@ import { authClient } from '../lib/auth-client';
 import { useI18n } from '../i18n/context';
 import { PageLayout } from '../components/layout/PageLayout';
 import { PageHeader } from '@/components/ui/page-header';
-import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
+import { Card, CardHeader, CardContent } from '@/components/ui/card';
 import {
   Table,
   TableHeader,
@@ -32,15 +32,12 @@ import {
   Building2,
   Plus,
   Users,
-  UserPlus,
   Crown,
-  Shield,
   Mail,
   Trash2,
   Loader2,
   Search,
   Eye,
-  CheckCircle,
   Clock,
   Copy,
   Check,
@@ -154,7 +151,7 @@ export const OrganizationsPage: React.FC = () => {
   });
 
   // Update Member Role Mutation
-  const updateRoleMutation = useMutation({
+  const _updateRoleMutation = useMutation({
     mutationFn: async ({ memberId, role }: { memberId: string; role: string }) => {
       if (!selectedOrgForDetails?.id) return;
       return authClient.organization.updateMemberRole({

@@ -73,8 +73,6 @@ describe("JWKS Offline Verification & Multi-Session Revocation Tests", () => {
         mockEnv
       );
       expect(sessionARes.status).toBe(200);
-      const sessionABody = (await sessionARes.json()) as any;
-      const tokenA = sessionABody.token;
       const cookieA = sessionARes.headers.get("set-cookie") || "";
 
       // 3. Sign in from Device B

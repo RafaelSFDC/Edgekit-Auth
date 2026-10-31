@@ -4,7 +4,7 @@ import { authClient } from '../lib/auth-client';
 import { useI18n } from '../i18n/context';
 import { PageLayout } from '../components/layout/PageLayout';
 import { PageHeader } from '@/components/ui/page-header';
-import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
+import { Card, CardHeader, CardContent } from '@/components/ui/card';
 import {
   Table,
   TableHeader,
@@ -42,17 +42,14 @@ import {
   Sparkles,
   KeyRound,
   Laptop,
-  Smartphone,
-  Globe,
   Copy,
   Check,
-  Fingerprint,
-  Lock,
 } from 'lucide-react';
 
 export const UsersPage: React.FC = () => {
   const queryClient = useQueryClient();
   const { t } = useI18n();
+  const [now] = useState(() => Date.now());
 
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedUserForBan, setSelectedUserForBan] = useState<any | null>(null);
@@ -854,7 +851,7 @@ export const UsersPage: React.FC = () => {
                   ) : (
                     <div className="space-y-2 max-h-60 overflow-y-auto">
                       {userSessions.map((s: any) => {
-                        const isExpired = new Date(s.expiresAt).getTime() < Date.now();
+                        const isExpired = new Date(s.expiresAt).getTime() < now;
                         return (
                           <div
                             key={s.id || s.token}

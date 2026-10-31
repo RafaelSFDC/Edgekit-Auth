@@ -18,7 +18,6 @@ import {
   BookOpen,
   Server,
   Layers,
-  ArrowRight,
 } from 'lucide-react';
 
 export const QuickstartPage: React.FC = () => {

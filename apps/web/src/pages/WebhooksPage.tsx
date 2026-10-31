@@ -19,14 +19,12 @@ import {
   Bell,
   Send,
   CheckCircle2,
-  AlertTriangle,
   Loader2,
   Lock,
   Globe,
   FileCode2,
   Copy,
   Check,
-  Zap,
 } from 'lucide-react';
 
 export const WebhooksPage: React.FC = () => {
@@ -34,7 +32,7 @@ export const WebhooksPage: React.FC = () => {
   const [copiedSnippet, setCopiedSnippet] = useState(false);
 
   // 1. Fetch Webhook configuration status
-  const { data: infoData, isLoading: isLoadingInfo } = useQuery({
+  const { data: infoData, isLoading: _isLoadingInfo } = useQuery({
     queryKey: ['admin', 'webhooks-info'],
     queryFn: async () => {
       const res = await fetch('/api/admin/webhooks/info');

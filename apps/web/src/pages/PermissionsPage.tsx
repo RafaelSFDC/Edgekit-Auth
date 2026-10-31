@@ -28,12 +28,8 @@ import {
   ShieldCheck,
   Plus,
   Key,
-  Users,
   Settings,
   Trash2,
-  CheckCircle2,
-  Layers,
-  Sparkles,
 } from 'lucide-react';
 
 export const PermissionsPage: React.FC = () => {
@@ -47,7 +43,7 @@ export const PermissionsPage: React.FC = () => {
   const [newPerm, setNewPerm] = useState({ key: '', name: '', description: '', category: 'Geral' });
 
   // 1. Fetch roles
-  const { data: rolesData, isLoading: isLoadingRoles } = useQuery({
+  const { data: rolesData, isLoading: _isLoadingRoles } = useQuery({
     queryKey: ['admin', 'rbac', 'roles'],
     queryFn: async () => {
       const res = await fetch('/api/admin/rbac/roles');
@@ -57,7 +53,7 @@ export const PermissionsPage: React.FC = () => {
   });
 
   // 2. Fetch permissions
-  const { data: permsData, isLoading: isLoadingPerms } = useQuery({
+  const { data: permsData, isLoading: _isLoadingPerms } = useQuery({
     queryKey: ['admin', 'rbac', 'permissions'],
     queryFn: async () => {
       const res = await fetch('/api/admin/rbac/permissions');
@@ -399,6 +395,8 @@ export const PermissionsPage: React.FC = () => {
                 return (
                   <label
                     key={p.id}
+                    htmlFor={`perm-check-${p.id}`}
+                    aria-label={p.name}
                     className="flex items-center justify-between p-2 rounded-lg border hover:bg-muted/40 cursor-pointer"
                   >
                     <div>
@@ -406,6 +404,7 @@ export const PermissionsPage: React.FC = () => {
                       <p className="font-mono text-[10px] text-muted-foreground">{p.key}</p>
                     </div>
                     <input
+                      id={`perm-check-${p.id}`}
                       type="checkbox"
                       checked={isChecked}
                       className="size-4 accent-indigo-600 rounded"

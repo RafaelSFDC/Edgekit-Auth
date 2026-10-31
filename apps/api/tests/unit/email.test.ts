@@ -3,7 +3,6 @@ import {
   sendEmail,
   sendMagicLinkEmail,
   sendPasswordResetEmail,
-  sendEmailVerificationEmail,
   sendOrganizationInviteEmail,
 } from "@/lib/email";
 import type { Bindings } from "@/types/env";

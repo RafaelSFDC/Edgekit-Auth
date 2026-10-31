@@ -30,8 +30,6 @@ import {
   CheckCircle,
   Zap,
   Trash2,
-  ExternalLink,
-  ShieldCheck,
   Building,
   User,
   DollarSign,
@@ -52,7 +50,7 @@ export const BillingPage: React.FC = () => {
   });
 
   // 1. Fetch plans
-  const { data: plansData, isLoading: isLoadingPlans } = useQuery({
+  const { data: plansData, isLoading: _isLoadingPlans } = useQuery({
     queryKey: ['billing', 'admin', 'plans'],
     queryFn: async () => {
       const res = await fetch('/api/billing/admin/plans');
@@ -62,7 +60,7 @@ export const BillingPage: React.FC = () => {
   });
 
   // 2. Fetch subscriptions
-  const { data: subsData, isLoading: isLoadingSubs } = useQuery({
+  const { data: subsData, isLoading: _isLoadingSubs } = useQuery({
     queryKey: ['billing', 'admin', 'subscriptions'],
     queryFn: async () => {
       const res = await fetch('/api/billing/admin/subscriptions');

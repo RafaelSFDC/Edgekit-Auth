@@ -1,37 +1,38 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import { authClient } from '../lib/auth-client';
 import { EdgekitLogo } from '../components/common/EdgekitLogo';
 import { useI18n } from '../i18n/context';
-import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
+import { Card, CardHeader } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { toast } from 'sonner';
-import { Building2, CheckCircle2, XCircle, ArrowRight, Loader2, ShieldAlert, Mail, Users } from 'lucide-react';
+import { Building2, CheckCircle2, XCircle, ArrowRight, Loader2, ShieldAlert } from 'lucide-react';
 
 export const AcceptInvitationPage: React.FC = () => {
   const navigate = useNavigate();
   const { t } = useI18n();
 
-  const [invitationId, setInvitationId] = useState<string | null>(null);
+  const [invitationId] = useState<string | null>(() => {
+    if (typeof window === 'undefined') return null;
+    const params = new URLSearchParams(window.location.search);
+    return params.get('id') || params.get('invitationId');
+  });
   const [isProcessing, setIsProcessing] = useState(false);
   const [outcome, setOutcome] = useState<'accepted' | 'rejected' | null>(null);
-  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [errorMsg, setErrorMsg] = useState<string | null>(() => {
+    if (typeof window === 'undefined') return null;
+    const params = new URLSearchParams(window.location.search);
+    if (!params.get('id') && !params.get('invitationId')) {
+      return t.acceptInvitation.errorLoading;
+    }
+    return null;
+  });
 
   const { data: sessionData, isPending: isLoadingSession } = authClient.useSession();
   const currentUser = sessionData?.user;
-
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const id = params.get('id') || params.get('invitationId');
-    if (id) {
-      setInvitationId(id);
-    } else {
-      setErrorMsg(t.acceptInvitation.errorLoading);
-    }
-  }, [t.acceptInvitation.errorLoading]);
 
   // Query invitation details from Better Auth
   const { data: invitation, isLoading: isLoadingInvitation, error: queryError } = useQuery({
@@ -97,7 +98,6 @@ export const AcceptInvitationPage: React.FC = () => {
   };
 
   const handleSignIn = () => {
-    const returnUrl = encodeURIComponent(window.location.pathname + window.location.search);
     navigate({ to: '/login' });
   };
 

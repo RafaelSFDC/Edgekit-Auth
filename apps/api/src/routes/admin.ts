@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import type { AppContext } from "@/types/env";
 import * as schema from "@/db/schema";
-import { eq, sql, gt, desc, and, or, like } from "drizzle-orm";
+import { eq, sql, gt, desc } from "drizzle-orm";
 import { generateApiKey, verifyApiKey } from "@/lib/api-keys";
 import { logAuditEvent } from "@/lib/audit";
 import { signWebhookPayload } from "@/lib/webhooks";

@@ -1,9 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { authClient } from '../lib/auth-client';
 import { EdgekitLogo } from '../components/common/EdgekitLogo';
 import { useI18n } from '../i18n/context';
-import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
+import { Card, CardHeader } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -15,26 +15,22 @@ export const ResetPasswordPage: React.FC = () => {
   const navigate = useNavigate();
   const { t } = useI18n();
 
-  const [token, setToken] = useState<string | null>(null);
+  const [token] = useState<string | null>(() => {
+    if (typeof window === 'undefined') return null;
+    return new URLSearchParams(window.location.search).get('token');
+  });
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [errorMsg, setErrorMsg] = useState<string | null>(null);
-  const [isSuccess, setIsSuccess] = useState(false);
-
-  useEffect(() => {
+  const [errorMsg, setErrorMsg] = useState<string | null>(() => {
+    if (typeof window === 'undefined') return null;
     const params = new URLSearchParams(window.location.search);
-    const tokenParam = params.get('token');
-    const errorParam = params.get('error');
-
-    if (errorParam) {
-      setErrorMsg(t.resetPassword.invalidToken);
-    } else if (tokenParam) {
-      setToken(tokenParam);
-    } else {
-      setErrorMsg(t.resetPassword.invalidToken);
+    if (params.get('error') || !params.get('token')) {
+      return t.resetPassword.invalidToken;
     }
-  }, [t.resetPassword.invalidToken]);
+    return null;
+  });
+  const [isSuccess, setIsSuccess] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -140,7 +136,6 @@ export const ResetPasswordPage: React.FC = () => {
                       placeholder="••••••••••••"
                       required
                       className="pl-9 text-xs"
-                      autoFocus
                     />
                   </div>
                 </div>

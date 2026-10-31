@@ -23,19 +23,18 @@ import {
   ShieldCheck,
   Laptop,
   Smartphone,
-  Globe,
   Trash2,
   AlertTriangle,
   Loader2,
   CheckCircle,
   Search,
-  KeyRound,
   Zap,
 } from 'lucide-react';
 
 export const SessionsPage: React.FC = () => {
   const queryClient = useQueryClient();
   const { t } = useI18n();
+  const [now] = useState(() => Date.now());
 
   const [userSearchTerm, setUserSearchTerm] = useState('');
   const [selectedUserForAudit, setSelectedUserForAudit] = useState<any | null>(null);
@@ -55,7 +54,7 @@ export const SessionsPage: React.FC = () => {
   const mySessions: any[] = sessionsData || [];
 
   // Search users for audit tab
-  const { data: searchUsersData, isLoading: isLoadingSearchUsers } = useQuery({
+  const { data: searchUsersData, isLoading: _isLoadingSearchUsers } = useQuery({
     queryKey: ['admin', 'users-search-session', userSearchTerm],
     queryFn: async () => {
       if (!userSearchTerm.trim()) return [];
@@ -334,10 +333,11 @@ export const SessionsPage: React.FC = () => {
                   {foundUsers.map((u) => {
                     const isSelected = selectedUserForAudit?.id === u.id;
                     return (
-                      <div
+                      <button
+                        type="button"
                         key={u.id}
                         onClick={() => setSelectedUserForAudit(u)}
-                        className={`p-2.5 flex items-center justify-between text-xs cursor-pointer hover:bg-muted/50 transition-colors ${
+                        className={`w-full p-2.5 flex items-center justify-between text-xs cursor-pointer hover:bg-muted/50 transition-colors ${
                           isSelected ? 'bg-indigo-500/10 font-semibold' : ''
                         }`}
                       >
@@ -348,7 +348,7 @@ export const SessionsPage: React.FC = () => {
                         <Badge variant="outline" className="text-[10px]">
                           {u.role || 'user'}
                         </Badge>
-                      </div>
+                      </button>
                     );
                   })}
                 </div>
@@ -406,7 +406,7 @@ export const SessionsPage: React.FC = () => {
                   ) : (
                     <div className="space-y-2">
                       {auditedSessions.map((s: any) => {
-                        const isExpired = new Date(s.expiresAt).getTime() < Date.now();
+                        const isExpired = new Date(s.expiresAt).getTime() < now;
                         const ua = s.userAgent || '';
                         const isMobile = /mobile|android|iphone/i.test(ua);
 

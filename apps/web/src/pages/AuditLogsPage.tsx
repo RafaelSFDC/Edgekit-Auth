@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { PageLayout } from '../components/layout/PageLayout';
 import { PageHeader } from '@/components/ui/page-header';
-import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
+import { Card, CardHeader, CardContent } from '@/components/ui/card';
 import {
   Table,
   TableHeader,
@@ -24,16 +24,9 @@ import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { formatDate } from '../lib/utils';
 import {
-  ShieldAlert,
   Search,
   Loader2,
   FileText,
-  User,
-  KeyRound,
-  Building2,
-  Globe,
-  Clock,
-  Sparkles,
 } from 'lucide-react';
 
 export const AuditLogsPage: React.FC = () => {

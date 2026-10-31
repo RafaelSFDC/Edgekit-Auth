@@ -34,7 +34,7 @@ export function createMockD1(): D1Database {
         if (colName) return row[colName] ?? null;
         return row;
       },
-      async run<T = unknown>(): Promise<D1Response> {
+      async run<_T = unknown>(): Promise<D1Response> {
         const stmt = sqlite.prepare(query);
         const info = stmt.run(...bindings);
         return {

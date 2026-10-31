@@ -2,7 +2,6 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { createMockD1 } from "../helpers/mock-d1";
 import app from "@/index";
 import * as schema from "@/db/schema";
-import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 
 describe("Consumer User Profile, Preferences & Sessions Integration Tests", () => {
@@ -37,7 +36,6 @@ describe("Consumer User Profile, Preferences & Sessions Integration Tests", () =
     );
 
     expect(signupRes.status).toBe(200);
-    const signupData = (await signupRes.json()) as any;
     const cookie = signupRes.headers.get("set-cookie") || "";
 
     // 2. GET /api/v1/users/me as consumer
