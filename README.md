@@ -157,79 +157,97 @@ Cada requisição traz o cabeçalho `X-Edgekit-Signature` com o digest HMAC-SHA2
 
 ---
 
-## 💻 Como Consumir no Frontend (Client SDK)
+## 💻 Como Consumir no Frontend (`@edgekit/react`)
 
-O arquivo `src/lib/auth-client.ts` exporta o client 100% tipado com todos os plugins ativados:
+Instale o SDK oficial do cliente React/Next.js:
 
-```typescript
-import { authClient } from "@/lib/auth-client";
+```bash
+pnpm add @edgekit/react
+```
 
-// 1. Cadastro com Email e Senha
-const { data, error } = await authClient.signUp.email({
-  email: "usuario@exemplo.com",
-  password: "SenhaSuperSegura123!",
-  name: "Dev Usuário",
-});
+```tsx
+import { EdgekitProvider, SignedIn, SignedOut, useUser, Protect } from "@edgekit/react";
 
-// 2. Login com Email e Senha
-const { data, error } = await authClient.signIn.email({
-  email: "usuario@exemplo.com",
-  password: "SenhaSuperSegura123!",
-});
+export function App() {
+  return (
+    <EdgekitProvider
+      apiUrl="http://localhost:8787"
+      publishableKey={process.env.NEXT_PUBLIC_EDGEKIT_PUBLISHABLE_KEY!}
+    >
+      <header>
+        <SignedOut>
+          <a href="/login">Entrar</a>
+        </SignedOut>
+        <SignedIn>
+          <UserProfile />
+        </SignedIn>
+      </header>
+    </EdgekitProvider>
+  );
+}
 
-// 3. Login com Passkey (Biometria)
-await authClient.signIn.passkey();
-
-// 4. Obter Sessão Ativa
-const { data: session } = await authClient.getSession();
-
-// 5. Autenticação Social OAuth
-await authClient.signIn.social({
-  provider: "github", // ou "google", "discord", "microsoft"
-  callbackURL: "/dashboard",
-});
-
-// 6. Organizações (Teams B2B)
-const { data: org } = await authClient.organization.create({
-  name: "Minha Empresa",
-  slug: "minha-empresa",
-});
+function UserProfile() {
+  const { user } = useUser();
+  return (
+    <div>
+      <p>Bem-vindo, {user?.name}</p>
+      <Protect role="admin" fallback={<p>Acesso restrito</p>}>
+        <a href="/admin">Configurações Avançadas</a>
+      </Protect>
+    </div>
+  );
+}
 ```
 
 ---
 
-## 🛡️ Como Validar Tokens no Backend (Validação Offline 0ms via JWKS)
+## 🛡️ Como Validar Tokens no Backend (`@edgekit/node`)
 
-No backend da sua aplicação (Node.js, Express, Fastify, Hono, NestJS), valide os tokens JWT dos seus usuários **100% offline via JWKS assimétrico (EdDSA / RS256), com zero requisições ao banco de dados D1**:
+Instale o SDK oficial de backend para Node.js, Express, Fastify ou Hono:
+
+```bash
+pnpm add @edgekit/node
+```
+
+Valide tokens JWT **100% offline via JWKS assimétrico (EdDSA / RS256), com zero requisições ao banco de dados D1**:
 
 ```typescript
-import { createRemoteJWKSet, jwtVerify } from "jose";
+import { createEdgekitAuth } from "@edgekit/node";
 
-// Carrega as chaves públicas uma única vez e mantém cache em memória
-const JWKS = createRemoteJWKSet(
-  new URL("http://localhost:8787/.well-known/jwks.json")
-);
+const auth = createEdgekitAuth({
+  apiUrl: "http://localhost:8787",
+  secretKey: process.env.EDGEKIT_SECRET_KEY, // opcional para chamadas M2M
+});
 
-export async function authenticateToken(bearerToken: string) {
+export async function authenticateRequest(req, res, next) {
   // Validação criptográfica instantânea (0ms de latência de banco)
-  const { payload } = await jwtVerify(bearerToken, JWKS, {
-    issuer: "http://localhost:8787",
-  });
+  const session = await auth.verifyToken(req.headers.authorization);
+  if (!session) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
 
-  return {
-    userId: payload.sub,
-    email: payload.email,
-    roles: payload.roles as string[],                  // ex: ["admin", "editor"]
-    permissions: payload.permissions as string[],      // ex: ["posts:publish", "invoices:view"]
-    orgId: payload.org_id as string | null,
-    orgRole: payload.org_role as string | null,
-    orgPermissions: payload.org_permissions as string[],
-    plan: payload.plan as string,                      // ex: "pro", "starter", "free"
-    entitlements: payload.entitlements as string[],    // ex: ["analytics_pro", "export_pdf"]
-    limits: payload.limits as Record<string, any>,     // ex: { seats: 10, storage_gb: 50 }
-  };
+  req.user = session;
+  // Campos tipados disponíveis:
+  // session.userId, session.email, session.roles, session.permissions,
+  // session.orgId, session.orgRole, session.orgPermissions,
+  // session.plan, session.entitlements, session.limits
+  next();
 }
 ```
+
+---
+
+## 🧩 Arquitetura Modular & Feature Flags
+
+O Edgekit Auth é totalmente modular e pode ter recursos ativados ou desativados via variáveis de ambiente no `.env`:
+
+| Variável | Padrão | Descrição |
+| :--- | :--- | :--- |
+| `FEATURE_BILLING` | `true` | Habilita endpoints de planos, checkout Stripe e webhooks. Se `false`, o sistema opera sem dependência do Stripe. |
+| `FEATURE_ORGANIZATIONS` | `true` | Habilita times B2B, memberships, convites e delegação de autoridade. |
+| `FEATURE_RBAC` | `true` | Habilita catálogo de permissões atômicas e papéis dinâmicos. |
+| `FEATURE_PASSKEYS` | `true` | Habilita autenticação biométrica WebAuthn / FIDO2. |
+| `FEATURE_MFA` | `true` | Habilita autenticação em duas etapas (2FA / TOTP) e códigos de recuperação. |
 
 ---
 ## 🧪 Testes Automatizados & Qualidade de Código

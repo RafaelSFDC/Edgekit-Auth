@@ -60,6 +60,13 @@ export interface Bindings {
   RATE_LIMIT_ENABLED?: string;
   RATE_LIMIT_MAX?: string;
   RATE_LIMIT_WINDOW?: string;
+
+  // Feature Flags & Modularity (Defaults to true if omitted or !== "false")
+  FEATURE_BILLING?: string;
+  FEATURE_ORGANIZATIONS?: string;
+  FEATURE_RBAC?: string;
+  FEATURE_PASSKEYS?: string;
+  FEATURE_MFA?: string;
 }
 
 export interface Variables {

@@ -517,3 +517,284 @@ userRoutes.delete("/me/sessions", async (c) => {
 
   return c.json({ success: true, message: "Demais sessões revogadas com sucesso." });
 });
+
+/**
+ * GET /me/organizations
+ * List all organizations the authenticated consumer belongs to.
+ */
+userRoutes.get("/me/organizations", async (c) => {
+  const identity = await getAuthIdentity(c);
+  if (!identity) {
+    return c.json({ error: "Unauthorized", message: "Autenticação necessária." }, 401);
+  }
+
+  const db = c.get("db");
+  const memberships = await db
+    .select({
+      id: schema.organization.id,
+      name: schema.organization.name,
+      slug: schema.organization.slug,
+      logo: schema.organization.logo,
+      role: schema.member.role,
+      joinedAt: schema.member.createdAt,
+    })
+    .from(schema.member)
+    .innerJoin(schema.organization, eq(schema.member.organizationId, schema.organization.id))
+    .where(eq(schema.member.userId, identity.userId))
+    .orderBy(schema.member.createdAt);
+
+  return c.json({ organizations: memberships });
+});
+
+/**
+ * POST /me/active-organization
+ * Set or clear the active organization on the current session.
+ */
+userRoutes.post("/me/active-organization", async (c) => {
+  const identity = await getAuthIdentity(c);
+  if (!identity) {
+    return c.json({ error: "Unauthorized", message: "Autenticação necessária." }, 401);
+  }
+
+  if (!identity.currentSessionId) {
+    return c.json(
+      {
+        error: "BadRequest",
+        message: "Sessão interativa necessária para alterar a organização ativa.",
+      },
+      400
+    );
+  }
+
+  const body = await c.req.json().catch(() => ({}));
+  const organizationId = body.organizationId !== undefined ? body.organizationId : null;
+
+  const db = c.get("db");
+
+  if (organizationId) {
+    const [membership] = await db
+      .select()
+      .from(schema.member)
+      .where(
+        and(
+          eq(schema.member.organizationId, organizationId),
+          eq(schema.member.userId, identity.userId)
+        )
+      )
+      .limit(1);
+
+    if (!membership) {
+      return c.json({ error: "Forbidden", message: "Você não é membro desta organização." }, 403);
+    }
+  }
+
+  await db
+    .update(schema.session)
+    .set({
+      activeOrganizationId: organizationId,
+      updatedAt: new Date(),
+    })
+    .where(eq(schema.session.id, identity.currentSessionId));
+
+  return c.json({
+    success: true,
+    activeOrganizationId: organizationId,
+  });
+});
+
+/**
+ * GET /me/invitations
+ * List pending organization invitations for the authenticated consumer's email.
+ */
+userRoutes.get("/me/invitations", async (c) => {
+  const identity = await getAuthIdentity(c);
+  if (!identity) {
+    return c.json({ error: "Unauthorized", message: "Autenticação necessária." }, 401);
+  }
+
+  const db = c.get("db");
+  const [targetUser] = await db
+    .select({ email: schema.user.email })
+    .from(schema.user)
+    .where(eq(schema.user.id, identity.userId))
+    .limit(1);
+
+  if (!targetUser) {
+    return c.json({ error: "NotFound", message: "Usuário não encontrado." }, 404);
+  }
+
+  const now = new Date();
+  const invitations = await db
+    .select({
+      id: schema.invitation.id,
+      organizationId: schema.invitation.organizationId,
+      organizationName: schema.organization.name,
+      organizationSlug: schema.organization.slug,
+      role: schema.invitation.role,
+      status: schema.invitation.status,
+      expiresAt: schema.invitation.expiresAt,
+      createdAt: schema.invitation.createdAt,
+    })
+    .from(schema.invitation)
+    .innerJoin(schema.organization, eq(schema.invitation.organizationId, schema.organization.id))
+    .where(
+      and(
+        eq(schema.invitation.email, targetUser.email.toLowerCase()),
+        eq(schema.invitation.status, "pending"),
+        gt(schema.invitation.expiresAt, now)
+      )
+    );
+
+  return c.json({ invitations });
+});
+
+/**
+ * POST /me/invitations/:id/accept
+ * Accept a pending organization invitation.
+ */
+userRoutes.post("/me/invitations/:id/accept", async (c) => {
+  const identity = await getAuthIdentity(c);
+  if (!identity) {
+    return c.json({ error: "Unauthorized", message: "Autenticação necessária." }, 401);
+  }
+
+  const db = c.get("db");
+  const inviteId = c.req.param("id");
+
+  const [targetUser] = await db
+    .select()
+    .from(schema.user)
+    .where(eq(schema.user.id, identity.userId))
+    .limit(1);
+
+  if (!targetUser) {
+    return c.json({ error: "NotFound", message: "Usuário não encontrado." }, 404);
+  }
+
+  const [invite] = await db
+    .select()
+    .from(schema.invitation)
+    .where(eq(schema.invitation.id, inviteId))
+    .limit(1);
+
+  if (!invite) {
+    return c.json({ error: "NotFound", message: "Convite não encontrado." }, 404);
+  }
+
+  if (invite.email.toLowerCase() !== targetUser.email.toLowerCase()) {
+    return c.json(
+      { error: "Forbidden", message: "Este convite não pertence ao seu endereço de e-mail." },
+      403
+    );
+  }
+
+  if (invite.status !== "pending" || invite.expiresAt.getTime() < Date.now()) {
+    return c.json({ error: "BadRequest", message: "Este convite já foi utilizado ou expirou." }, 400);
+  }
+
+  const [existingMember] = await db
+    .select()
+    .from(schema.member)
+    .where(
+      and(
+        eq(schema.member.organizationId, invite.organizationId),
+        eq(schema.member.userId, targetUser.id)
+      )
+    )
+    .limit(1);
+
+  const role = invite.role || "member";
+  const now = new Date();
+
+  if (!existingMember) {
+    const memberId = crypto.randomUUID();
+    await db.insert(schema.member).values({
+      id: memberId,
+      organizationId: invite.organizationId,
+      userId: targetUser.id,
+      role,
+      createdAt: now,
+    });
+  }
+
+  await db
+    .update(schema.invitation)
+    .set({ status: "accepted" })
+    .where(eq(schema.invitation.id, invite.id));
+
+  await logAuditEvent(db, {
+    action: "invitation.accepted",
+    actorId: targetUser.id,
+    actorEmail: targetUser.email,
+    targetId: invite.organizationId,
+    targetType: "organization",
+    metadata: { role, invitationId: invite.id },
+  });
+
+  return c.json({
+    success: true,
+    message: "Convite aceito com sucesso!",
+    organizationId: invite.organizationId,
+    role,
+  });
+});
+
+/**
+ * POST /me/invitations/:id/reject
+ * Reject a pending organization invitation.
+ */
+userRoutes.post("/me/invitations/:id/reject", async (c) => {
+  const identity = await getAuthIdentity(c);
+  if (!identity) {
+    return c.json({ error: "Unauthorized", message: "Autenticação necessária." }, 401);
+  }
+
+  const db = c.get("db");
+  const inviteId = c.req.param("id");
+
+  const [targetUser] = await db
+    .select()
+    .from(schema.user)
+    .where(eq(schema.user.id, identity.userId))
+    .limit(1);
+
+  if (!targetUser) {
+    return c.json({ error: "NotFound", message: "Usuário não encontrado." }, 404);
+  }
+
+  const [invite] = await db
+    .select()
+    .from(schema.invitation)
+    .where(eq(schema.invitation.id, inviteId))
+    .limit(1);
+
+  if (!invite) {
+    return c.json({ error: "NotFound", message: "Convite não encontrado." }, 404);
+  }
+
+  if (invite.email.toLowerCase() !== targetUser.email.toLowerCase()) {
+    return c.json(
+      { error: "Forbidden", message: "Este convite não pertence ao seu endereço de e-mail." },
+      403
+    );
+  }
+
+  await db
+    .update(schema.invitation)
+    .set({ status: "rejected" })
+    .where(eq(schema.invitation.id, invite.id));
+
+  await logAuditEvent(db, {
+    action: "invitation.rejected",
+    actorId: targetUser.id,
+    actorEmail: targetUser.email,
+    targetId: invite.organizationId,
+    targetType: "organization",
+    metadata: { invitationId: invite.id },
+  });
+
+  return c.json({
+    success: true,
+    message: "Convite rejeitado com sucesso.",
+  });
+});

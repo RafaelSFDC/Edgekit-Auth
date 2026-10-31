@@ -14,6 +14,22 @@ import { dispatchWebhook } from "@/lib/webhooks";
 export const billingRoutes = new Hono<AppContext>();
 
 /**
+ * Modular Gate: If FEATURE_BILLING is explicitly disabled, respond with 404 FeatureDisabled
+ */
+billingRoutes.use("*", async (c, next) => {
+  if (c.env?.FEATURE_BILLING === "false") {
+    return c.json(
+      {
+        error: "FeatureDisabled",
+        message: "O módulo de faturamento (Billing) está desativado nesta instalação.",
+      },
+      404
+    );
+  }
+  return next();
+});
+
+/**
  * GET /api/billing/plans
  * Public endpoint: Lists all available billing plans for applications to render pricing tables.
  */

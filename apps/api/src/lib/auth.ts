@@ -33,6 +33,7 @@ import {
 import { sendSMSOTP } from "@/lib/sms";
 import { dispatchWebhook } from "@/lib/webhooks";
 import { logAuditEvent } from "@/lib/audit";
+import { getFeatureFlags } from "@/lib/features";
 
 const orgStatements = {
   organization: ["update", "delete", "transfer_ownership"],
@@ -65,6 +66,7 @@ const defaultOrgRoles = {
 };
 
 export function createAuth(env: Bindings, _request?: Request) {
+  const features = getFeatureFlags(env);
   const db = createDb(env.DB);
   const baseURL = env.BETTER_AUTH_URL || env.APP_URL || "http://localhost:8787";
   const secret =
@@ -480,7 +482,8 @@ export function createAuth(env: Bindings, _request?: Request) {
           enabled: true,
         },
         sendInvitationEmail: async (data) => {
-          const inviteUrl = `${baseURL}/accept-invitation?id=${data.id}`;
+          const clientBase = env.APP_URL || baseURL;
+          const inviteUrl = `${clientBase}/accept-invitation?id=${data.id}`;
           await sendOrganizationInviteEmail({
             email: data.email,
             organizationName: data.organization.name,
@@ -515,7 +518,7 @@ export function createAuth(env: Bindings, _request?: Request) {
         jwt: {
           definePayload: async (session) => {
             const userId = session.user.id;
-            const orgId = (session.session as any).activeOrganizationId || null;
+            const orgId = features.organizations ? ((session.session as any).activeOrganizationId || null) : null;
             let orgRole: string | null = null;
             let orgSlug: string | null = null;
             let orgPermissions: string[] = [];
@@ -523,8 +526,9 @@ export function createAuth(env: Bindings, _request?: Request) {
             let activeEntitlements: string[] = [];
             let activeLimits: Record<string, any> = {};
 
-            try {
-              if (orgId) {
+            // 1. Organization context & dynamic permissions
+            if (features.organizations && orgId) {
+              try {
                 const [mem] = await db
                   .select()
                   .from(schema.member)
@@ -585,7 +589,53 @@ export function createAuth(env: Bindings, _request?: Request) {
                     }
                   }
 
-                  const [sub] = await db
+                  // Check if organization has direct metadata entitlements
+                  if (org && org.metadata) {
+                    try {
+                      const orgMeta = typeof org.metadata === "string" ? JSON.parse(org.metadata) : org.metadata;
+                      if (orgMeta?.plan) activePlan = orgMeta.plan;
+                      if (Array.isArray(orgMeta?.entitlements)) activeEntitlements = orgMeta.entitlements;
+                      if (orgMeta?.limits && typeof orgMeta.limits === "object") activeLimits = orgMeta.limits;
+                    } catch {}
+                  }
+
+                  // 2. Billing & Stripe subscription for active organization (if billing is enabled)
+                  if (features.billing) {
+                    const [sub] = await db
+                      .select()
+                      .from(schema.billingSubscription)
+                      .innerJoin(
+                        schema.billingPlan,
+                        eq(schema.billingSubscription.planId, schema.billingPlan.id)
+                      )
+                      .where(
+                        and(
+                          eq(schema.billingSubscription.targetType, "organization"),
+                          eq(schema.billingSubscription.targetId, orgId),
+                          eq(schema.billingSubscription.status, "active")
+                        )
+                      )
+                      .limit(1);
+
+                    if (sub) {
+                      activePlan = sub.billing_plan.slug;
+                      try {
+                        activeEntitlements = JSON.parse(sub.billing_plan.features || "[]");
+                      } catch {}
+                      try {
+                        activeLimits = JSON.parse(sub.billing_plan.limits || "{}");
+                      } catch {}
+                    }
+                  }
+                }
+              } catch {}
+            }
+
+            // 3. User-level B2C subscription or direct entitlements if no active org subscription was found
+            if (activePlan === "free" && userId) {
+              if (features.billing) {
+                try {
+                  const [userSub] = await db
                     .select()
                     .from(schema.billingSubscription)
                     .innerJoin(
@@ -594,90 +644,74 @@ export function createAuth(env: Bindings, _request?: Request) {
                     )
                     .where(
                       and(
-                        eq(schema.billingSubscription.targetType, "organization"),
-                        eq(schema.billingSubscription.targetId, orgId),
+                        eq(schema.billingSubscription.targetType, "user"),
+                        eq(schema.billingSubscription.targetId, userId),
                         eq(schema.billingSubscription.status, "active")
                       )
                     )
                     .limit(1);
 
-                  if (sub) {
-                    activePlan = sub.billing_plan.slug;
+                  if (userSub) {
+                    activePlan = userSub.billing_plan.slug;
                     try {
-                      activeEntitlements = JSON.parse(sub.billing_plan.features || "[]");
+                      activeEntitlements = JSON.parse(userSub.billing_plan.features || "[]");
                     } catch {}
                     try {
-                      activeLimits = JSON.parse(sub.billing_plan.limits || "{}");
+                      activeLimits = JSON.parse(userSub.billing_plan.limits || "{}");
                     } catch {}
                   }
-                }
+                } catch {}
               }
-            } catch {}
 
-            // Check for user-level B2C subscription if no active org subscription was found
-            if (activePlan === "free" && userId) {
+              // Check direct entitlements on user publicMetadata
+              if (activePlan === "free" && (session.user as any).publicMetadata) {
+                try {
+                  const userMeta = typeof (session.user as any).publicMetadata === "string"
+                    ? JSON.parse((session.user as any).publicMetadata)
+                    : (session.user as any).publicMetadata;
+                  if (userMeta?.plan) activePlan = userMeta.plan;
+                  if (Array.isArray(userMeta?.entitlements)) activeEntitlements = userMeta.entitlements;
+                  if (userMeta?.limits && typeof userMeta.limits === "object") activeLimits = userMeta.limits;
+                } catch {}
+              }
+            }
+
+            // 4. Global RBAC roles & permissions (if RBAC feature is enabled)
+            let globalRoles: string[] = [];
+            let globalPermissions: string[] = [];
+            if (features.rbac) {
               try {
-                const [userSub] = await db
-                  .select()
-                  .from(schema.billingSubscription)
-                  .innerJoin(
-                    schema.billingPlan,
-                    eq(schema.billingSubscription.planId, schema.billingPlan.id)
-                  )
-                  .where(
-                    and(
-                      eq(schema.billingSubscription.targetType, "user"),
-                      eq(schema.billingSubscription.targetId, userId),
-                      eq(schema.billingSubscription.status, "active")
-                    )
-                  )
-                  .limit(1);
+                const userRolesList = await db
+                  .select({
+                    roleKey: schema.role.key,
+                  })
+                  .from(schema.userRole)
+                  .innerJoin(schema.role, eq(schema.userRole.roleId, schema.role.id))
+                  .where(eq(schema.userRole.userId, userId));
 
-                if (userSub) {
-                  activePlan = userSub.billing_plan.slug;
-                  try {
-                    activeEntitlements = JSON.parse(userSub.billing_plan.features || "[]");
-                  } catch {}
-                  try {
-                    activeLimits = JSON.parse(userSub.billing_plan.limits || "{}");
-                  } catch {}
+                globalRoles = userRolesList.map((r) => r.roleKey);
+
+                if (globalRoles.length > 0) {
+                  const permsList = await db
+                    .select({
+                      permissionKey: schema.rolePermission.permissionKey,
+                    })
+                    .from(schema.rolePermission)
+                    .innerJoin(
+                      schema.role,
+                      eq(schema.rolePermission.roleId, schema.role.id)
+                    )
+                    .where(
+                      sql`${schema.role.key} IN (${sql.join(
+                        globalRoles.map((r) => sql`${r}`),
+                        sql`, `
+                      )})`
+                    );
+
+                  globalPermissions = Array.from(new Set(permsList.map((p) => p.permissionKey)));
                 }
               } catch {}
             }
-
-            let globalRoles: string[] = [];
-            let globalPermissions: string[] = [];
-            try {
-              const userRolesList = await db
-                .select({
-                  roleKey: schema.role.key,
-                })
-                .from(schema.userRole)
-                .innerJoin(schema.role, eq(schema.userRole.roleId, schema.role.id))
-                .where(eq(schema.userRole.userId, userId));
-
-              globalRoles = userRolesList.map((r) => r.roleKey);
-
-              if (globalRoles.length > 0) {
-                const permsList = await db
-                  .select({
-                    permissionKey: schema.rolePermission.permissionKey,
-                  })
-                  .from(schema.rolePermission)
-                  .innerJoin(
-                    schema.role,
-                    eq(schema.rolePermission.roleId, schema.role.id)
-                  )
-                  .where(
-                    sql`${schema.role.key} IN (${sql.join(
-                      globalRoles.map((r) => sql`${r}`),
-                      sql`, `
-                    )})`
-                  );
-
-                globalPermissions = Array.from(new Set(permsList.map((p) => p.permissionKey)));
-              }
-            } catch {}
 
             let publicMetadata = {};
             try {

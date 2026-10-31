@@ -45,62 +45,69 @@ export const QuickstartPage: React.FC = () => {
     setTimeout(() => setCopiedIndex(null), 2500);
   };
 
-  const nextJsSnippet = `// 1. Instalar o Client SDK
-// pnpm add better-auth
+  const nextJsSnippet = `// 1. Instalar o React Client SDK
+// pnpm add @edgekit/react
 
-// src/lib/auth-client.ts
-import { createAuthClient } from "better-auth/react";
+// src/app/providers.tsx
+import { EdgekitProvider } from "@edgekit/react";
 
-export const authClient = createAuthClient({
-  baseURL: "${hostUrl}",
-  fetchOptions: {
-    headers: {
-      "x-edgekit-publishable-key": process.env.NEXT_PUBLIC_EDGEKIT_PUBLISHABLE_KEY || "${publishableKey}",
-    },
-  },
-});
+export function Providers({ children }: { children: React.ReactNode }) {
+  return (
+    <EdgekitProvider
+      apiUrl="${hostUrl}"
+      publishableKey={process.env.NEXT_PUBLIC_EDGEKIT_PUBLISHABLE_KEY || "${publishableKey}"}
+    >
+      {children}
+    </EdgekitProvider>
+  );
+}
 
 // 2. Usar em componentes React / Next.js
-export function LoginButton() {
-  const handleLogin = async () => {
-    await authClient.signIn.email({
-      email: "cliente@exemplo.com",
-      password: "SenhaSuperSegura123!",
-    });
-  };
+import { SignedIn, SignedOut, useUser, Protect } from "@edgekit/react";
 
-  return <button onClick={handleLogin}>Entrar no App</button>;
+export function Navigation() {
+  const { user } = useUser();
+
+  return (
+    <nav>
+      <SignedOut>
+        <a href="/login">Entrar</a>
+      </SignedOut>
+
+      <SignedIn>
+        <p>Olá, {user?.name}</p>
+        <Protect role="admin">
+          <a href="/admin-panel">Painel da Aplicação</a>
+        </Protect>
+      </SignedIn>
+    </nav>
+  );
 }`;
 
-  const nodeJwksSnippet = `// 1. Instalar validador criptográfico JWKS
-// pnpm add jose
+  const nodeJwksSnippet = `// 1. Instalar o Backend SDK
+// pnpm add @edgekit/node
 
 // src/middlewares/auth.ts
-import { createRemoteJWKSet, jwtVerify } from "jose";
+import { createEdgekitAuth } from "@edgekit/node";
 
-const JWKS = createRemoteJWKSet(
-  new URL("${hostUrl}/.well-known/jwks.json")
-);
+const auth = createEdgekitAuth({
+  apiUrl: "${hostUrl}",
+  secretKey: process.env.EDGEKIT_SECRET_KEY, // opcional para chamadas M2M
+});
 
-export async function verifyEdgekitToken(bearerToken: string) {
-  // Validação criptográfica 100% offline via algoritmo assimétrico EdDSA/RS256
+export async function authenticateRequest(req: any, res: any, next: any) {
+  // Validação criptográfica 100% offline via JWKS assimétrico (EdDSA/RS256)
   // Zero chamadas de rede ao banco de dados D1!
-  const { payload } = await jwtVerify(bearerToken, JWKS, {
-    issuer: "${hostUrl}",
-  });
+  const bearer = req.headers.authorization;
+  const session = await auth.verifyToken(bearer);
 
-  return {
-    userId: payload.sub,
-    email: payload.email,
-    roles: payload.roles as string[],
-    permissions: payload.permissions as string[],
-    orgId: payload.org_id as string,
-    orgRole: payload.org_role as string,
-    orgPermissions: payload.org_permissions as string[],
-    plan: payload.plan as string,
-    entitlements: payload.entitlements as string[],
-    limits: payload.limits as Record<string, any>,
-  };
+  if (!session) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
+
+  req.user = session;
+  // session traz tipado: userId, email, roles, permissions, orgId, orgRole, plan, entitlements, limits
+  next();
 }`;
 
   const pythonSnippet = `# 1. Instalar bibliotecas

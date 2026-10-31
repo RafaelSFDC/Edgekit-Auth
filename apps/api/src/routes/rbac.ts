@@ -10,6 +10,16 @@ export const rbacRoutes = new Hono<AppContext>();
  * Super-Admin & Secret Key Guard Middleware
  */
 rbacRoutes.use("*", async (c, next) => {
+  if (c.env?.FEATURE_RBAC === "false") {
+    return c.json(
+      {
+        error: "FeatureDisabled",
+        message: "O módulo RBAC está desativado nesta instalação.",
+      },
+      404
+    );
+  }
+
   const auth = c.get("auth");
   const db = c.get("db");
 
