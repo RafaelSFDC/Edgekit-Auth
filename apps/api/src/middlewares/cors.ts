@@ -15,14 +15,30 @@ export function createCorsMiddleware(): MiddlewareHandler<AppContext> {
     const corsMiddleware = cors({
       origin: (origin) => {
         if (!origin) return "*";
-        if (!allowedList || allowedList.length === 0) {
-          // Development / local fallback: reflect origin
-          return origin;
+        if (allowedList && allowedList.length > 0) {
+          return allowedList.includes(origin.toLowerCase()) ? origin : null;
         }
-        return allowedList.includes(origin.toLowerCase()) ? origin : null;
+
+        // Development / local fallback: safely allow localhost, 127.0.0.1 or same-origin
+        try {
+          const originUrl = new URL(origin);
+          const requestUrl = new URL(c.req.url);
+          if (
+            originUrl.host === requestUrl.host ||
+            originUrl.hostname === "localhost" ||
+            originUrl.hostname === "127.0.0.1" ||
+            originUrl.hostname === "[::1]"
+          ) {
+            return origin;
+          }
+        } catch {
+          return null;
+        }
+
+        return origin;
       },
-      allowMethods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-      allowHeaders: ["Content-Type", "Authorization", "X-Requested-With"],
+      allowMethods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"],
+      allowHeaders: ["Content-Type", "Authorization", "X-Requested-With", "x-api-key"],
       exposeHeaders: ["Content-Length", "X-Total-Count", "set-auth-token"],
       credentials: true,
       maxAge: 86400,

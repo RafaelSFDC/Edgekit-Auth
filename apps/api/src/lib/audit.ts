@@ -7,7 +7,7 @@ export interface LogAuditEventParams {
   actorEmail?: string | null;
   actorType?: "user" | "api_key" | "system";
   targetId?: string | null;
-  targetType?: "user" | "organization" | "api_key" | "session" | "webhook";
+  targetType?: "user" | "organization" | "api_key" | "session" | "webhook" | "system";
   ipAddress?: string | null;
   userAgent?: string | null;
   metadata?: Record<string, any> | null;

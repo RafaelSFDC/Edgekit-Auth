@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
+import { useQuery } from '@tanstack/react-query';
 import { authClient } from '../lib/auth-client';
 import { EdgekitLogo } from '../components/common/EdgekitLogo';
 import { useI18n } from '../i18n/context';
@@ -24,6 +25,23 @@ export const LoginPage: React.FC = () => {
   const navigate = useNavigate();
   const { t } = useI18n();
 
+  // Setup state (First access onboarding)
+  const [setupName, setSetupName] = useState('');
+  const [setupEmail, setSetupEmail] = useState('');
+  const [setupPassword, setSetupPassword] = useState('');
+  const [setupConfirmPassword, setSetupConfirmPassword] = useState('');
+  const [isSetupLoading, setIsSetupLoading] = useState(false);
+
+  const { data: setupStatus, isLoading: isCheckingSetup } = useQuery({
+    queryKey: ['setup-status'],
+    queryFn: async () => {
+      const res = await fetch('/api/setup/status');
+      if (!res.ok) return { needsSetup: false };
+      return res.json();
+    },
+    staleTime: 5000,
+  });
+
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -40,6 +58,48 @@ export const LoginPage: React.FC = () => {
   const [twoFactorCode, setTwoFactorCode] = useState('');
   const [isBackupCodeMode, setIsBackupCodeMode] = useState(false);
   const [isTwoFactorLoading, setIsTwoFactorLoading] = useState(false);
+
+  const handleSetupSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (setupPassword !== setupConfirmPassword) {
+      setErrorMsg(t.setup.passwordMismatch);
+      return;
+    }
+    if (setupPassword.length < 8) {
+      setErrorMsg(t.setup.passwordMinLength);
+      return;
+    }
+    setIsSetupLoading(true);
+    setErrorMsg(null);
+
+    try {
+      const res = await fetch('/api/setup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: setupName.trim(),
+          email: setupEmail.trim(),
+          password: setupPassword,
+        }),
+      });
+
+      const data = (await res.json().catch(() => ({}))) as any;
+
+      if (!res.ok) {
+        setErrorMsg(data.message || 'Falha ao criar o administrador.');
+        setIsSetupLoading(false);
+        return;
+      }
+
+      toast.success(t.setup.successMessage);
+      await authClient.getSession();
+      navigate({ to: '/' });
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Erro ao conectar ao serviço de setup.');
+    } finally {
+      setIsSetupLoading(false);
+    }
+  };
 
   const handleEmailSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -188,6 +248,139 @@ export const LoginPage: React.FC = () => {
       setIsForgotLoading(false);
     }
   };
+
+  if (isCheckingSetup) {
+    return (
+      <div className="min-h-screen bg-background flex flex-col items-center justify-center p-4 select-none">
+        <div className="size-12 rounded-xl bg-indigo-500/10 border border-indigo-500/20 text-indigo-500 flex items-center justify-center animate-pulse mb-3">
+          <EdgekitLogo size={28} module="auth" />
+        </div>
+        <p className="text-xs text-muted-foreground animate-pulse font-medium">
+          {t.common.loading}...
+        </p>
+      </div>
+    );
+  }
+
+  if (setupStatus?.needsSetup) {
+    return (
+      <div className="min-h-screen bg-background flex flex-col items-center justify-center p-4 relative overflow-hidden select-none">
+        <div className="absolute top-1/3 left-1/2 -translate-x-1/2 -translate-y-1/2 size-96 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none" />
+
+        <div className="w-full max-w-md relative z-10 animate-in fade-in-50 duration-300 space-y-6">
+          <div className="text-center">
+            <div className="size-12 rounded-xl bg-indigo-500/10 border border-indigo-500/20 text-indigo-500 mx-auto flex items-center justify-center shadow-md shadow-indigo-500/10 mb-3.5">
+              <EdgekitLogo size={28} module="auth" />
+            </div>
+            <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-indigo-500/10 text-indigo-500 border border-indigo-500/20 mb-2">
+              <ShieldCheck className="size-3" />
+              <span>{t.setup.badge}</span>
+            </div>
+            <h1 className="text-2xl font-bold tracking-tight text-foreground">{t.setup.title}</h1>
+            <p className="text-xs text-muted-foreground mt-1 max-w-sm mx-auto">{t.setup.subtitle}</p>
+          </div>
+
+          <Card className="border-border/80 shadow-xl bg-card/90 backdrop-blur-xl">
+            <CardHeader className="pb-2">
+              {errorMsg && (
+                <Alert variant="destructive" className="text-xs">
+                  <AlertDescription>{errorMsg}</AlertDescription>
+                </Alert>
+              )}
+            </CardHeader>
+
+            <CardContent>
+              <form onSubmit={handleSetupSubmit} className="space-y-4">
+                <div className="space-y-1.5">
+                  <Label htmlFor="setupName" className="text-xs text-muted-foreground font-medium">
+                    {t.setup.nameLabel}
+                  </Label>
+                  <Input
+                    id="setupName"
+                    type="text"
+                    value={setupName}
+                    onChange={(e) => setSetupName(e.target.value)}
+                    placeholder={t.setup.namePlaceholder}
+                    required
+                    disabled={isSetupLoading}
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label htmlFor="setupEmail" className="text-xs text-muted-foreground font-medium">
+                    {t.setup.emailLabel}
+                  </Label>
+                  <Input
+                    id="setupEmail"
+                    type="email"
+                    value={setupEmail}
+                    onChange={(e) => setSetupEmail(e.target.value)}
+                    placeholder={t.setup.emailPlaceholder}
+                    required
+                    disabled={isSetupLoading}
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label htmlFor="setupPassword" className="text-xs text-muted-foreground font-medium">
+                    {t.setup.passwordLabel}
+                  </Label>
+                  <Input
+                    id="setupPassword"
+                    type="password"
+                    value={setupPassword}
+                    onChange={(e) => setSetupPassword(e.target.value)}
+                    placeholder={t.setup.passwordPlaceholder}
+                    required
+                    minLength={8}
+                    disabled={isSetupLoading}
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label htmlFor="setupConfirmPassword" className="text-xs text-muted-foreground font-medium">
+                    {t.setup.confirmPasswordLabel}
+                  </Label>
+                  <Input
+                    id="setupConfirmPassword"
+                    type="password"
+                    value={setupConfirmPassword}
+                    onChange={(e) => setSetupConfirmPassword(e.target.value)}
+                    placeholder={t.setup.confirmPasswordPlaceholder}
+                    required
+                    minLength={8}
+                    disabled={isSetupLoading}
+                  />
+                </div>
+
+                <Button
+                  type="submit"
+                  disabled={isSetupLoading}
+                  className="w-full text-xs font-semibold py-5 cursor-pointer mt-2"
+                >
+                  {isSetupLoading ? (
+                    <>
+                      <Loader2 className="mr-2 size-3.5 animate-spin" />
+                      {t.setup.submitting}
+                    </>
+                  ) : (
+                    <>
+                      <span>{t.setup.submitButton}</span>
+                      <ArrowRight className="ml-2 size-3.5" />
+                    </>
+                  )}
+                </Button>
+              </form>
+            </CardContent>
+          </Card>
+
+          <p className="text-[11px] text-center text-muted-foreground">
+            {t.setup.footerNotice}
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-background flex flex-col items-center justify-center p-4 relative overflow-hidden select-none">

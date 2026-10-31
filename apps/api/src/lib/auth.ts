@@ -75,9 +75,32 @@ export function createAuth(env: Bindings, request?: Request) {
     };
   }
 
+  // Build trusted origins list (for CSRF protection and origin validation)
+  const envAllowedOrigins = (env.ALLOWED_ORIGINS || "")
+    .split(",")
+    .map((o) => o.trim())
+    .filter(Boolean);
+
+  const trustedOrigins = Array.from(
+    new Set([
+      baseURL,
+      ...(env.APP_URL ? [env.APP_URL] : []),
+      "http://localhost:5173",
+      "http://localhost:8787",
+      "http://127.0.0.1:5173",
+      "http://127.0.0.1:8787",
+      "http://localhost:3000",
+      "http://localhost:4173",
+      "http://localhost:*",
+      "http://127.0.0.1:*",
+      ...envAllowedOrigins,
+    ])
+  );
+
   return betterAuth({
     baseURL,
     secret,
+    trustedOrigins,
     database: drizzleAdapter(db, {
       provider: "sqlite",
       schema,

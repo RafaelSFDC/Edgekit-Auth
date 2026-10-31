@@ -6,6 +6,7 @@ import { createAuth } from "@/lib/auth";
 import { createCorsMiddleware } from "@/middlewares/cors";
 import { errorHandler } from "@/middlewares/error-handler";
 import { adminRoutes } from "@/routes/admin";
+import { setupRoutes } from "@/routes/setup";
 
 const app = new Hono<AppContext>();
 
@@ -87,6 +88,9 @@ app.get("/.well-known/jwks.json", async (c) => {
 
 // Interactive Swagger UI powered by Better Auth OpenAPI specification
 app.get("/docs", swaggerUI({ url: "/api/auth/open-api/generate-schema" }));
+
+// Initial Setup & Onboarding Status Endpoints (Publicly accessible before first admin is created)
+app.route("/api/setup", setupRoutes);
 
 // Admin Management Custom Endpoints (Protected by Admin Auth Guard)
 app.route("/api/admin", adminRoutes);

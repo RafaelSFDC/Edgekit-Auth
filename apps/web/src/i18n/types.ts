@@ -208,4 +208,23 @@ export interface Translations {
     revokeOthers: string;
     revokeOthersConfirm: string;
   };
+  setup: {
+    badge: string;
+    title: string;
+    subtitle: string;
+    nameLabel: string;
+    namePlaceholder: string;
+    emailLabel: string;
+    emailPlaceholder: string;
+    passwordLabel: string;
+    passwordPlaceholder: string;
+    confirmPasswordLabel: string;
+    confirmPasswordPlaceholder: string;
+    submitButton: string;
+    submitting: string;
+    passwordMismatch: string;
+    passwordMinLength: string;
+    successMessage: string;
+    footerNotice: string;
+  };
 }

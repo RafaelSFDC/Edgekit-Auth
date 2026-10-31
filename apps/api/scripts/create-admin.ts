@@ -159,8 +159,8 @@ async function main() {
   const insertUserSql = `INSERT INTO user (id, name, email, email_verified, role, banned, created_at, updated_at) VALUES ('${userId}', '${name}', '${email.toLowerCase()}', 1, 'admin', 0, ${now}, ${now});`;
   runD1Command(insertUserSql, isRemote);
 
-  // Insert Account with password
-  const insertAccountSql = `INSERT INTO account (id, account_id, provider_id, user_id, password, created_at, updated_at) VALUES ('${accountId}', '${email.toLowerCase()}', 'credential', '${userId}', '${hashedPassword}', ${now}, ${now});`;
+  // Insert Account with password (account_id must match userId in Better Auth for credential provider)
+  const insertAccountSql = `INSERT INTO account (id, account_id, provider_id, user_id, password, created_at, updated_at) VALUES ('${accountId}', '${userId}', 'credential', '${userId}', '${hashedPassword}', ${now}, ${now});`;
   runD1Command(insertAccountSql, isRemote);
 
   console.log(`\n🎉 Conta de Administrador criada com sucesso!`);
