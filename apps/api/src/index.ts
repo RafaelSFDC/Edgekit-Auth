@@ -5,6 +5,7 @@ import { createDb } from "@/db";
 import { createAuth } from "@/lib/auth";
 import { createCorsMiddleware } from "@/middlewares/cors";
 import { errorHandler } from "@/middlewares/error-handler";
+import { adminRoutes } from "@/routes/admin";
 
 const app = new Hono<AppContext>();
 
@@ -86,6 +87,9 @@ app.get("/.well-known/jwks.json", async (c) => {
 
 // Interactive Swagger UI powered by Better Auth OpenAPI specification
 app.get("/docs", swaggerUI({ url: "/api/auth/open-api/generate-schema" }));
+
+// Admin Management Custom Endpoints (Protected by Admin Auth Guard)
+app.route("/api/admin", adminRoutes);
 
 // Mount Better Auth Handler on /api/auth/*
 app.all("/api/auth/*", (c) => {

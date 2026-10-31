@@ -19,7 +19,7 @@ async function testAuthRouting() {
 
   // 2. Validar que as rotas da Dashboard estão aninhadas no layout protegido
   console.log('2. Validando rotas protegidas da Dashboard...');
-  const dashboardRoutes = ['/', '/users', '/organizations', '/sessions'];
+  const dashboardRoutes = ['/', '/users', '/organizations', '/sessions', '/api-keys', '/audit-logs', '/webhooks'];
   for (const path of dashboardRoutes) {
     const route = routes[path];
     assert.ok(route, `A rota ${path} deve estar registrada`);
@@ -29,7 +29,7 @@ async function testAuthRouting() {
       `A rota ${path} deve ser filha de /_dashboard`
     );
   }
-  console.log('✅ Todas as rotas da dashboard (/ , /users, /organizations, /sessions) pertencem a _dashboard!');
+  console.log('✅ Todas as rotas da dashboard (/ , /users, /organizations, /sessions, /api-keys, /audit-logs, /webhooks) pertencem a _dashboard!');
 
   // 3. Validar chaves de tradução i18n para Login
   console.log('3. Validando traduções i18n (pt-BR e en)...');
@@ -38,12 +38,18 @@ async function testAuthRouting() {
   assert.ok(ptBR.sidebar.users, 'pt-BR deve conter sidebar.users');
   assert.ok(ptBR.sidebar.organizations, 'pt-BR deve conter sidebar.organizations');
   assert.ok(ptBR.sidebar.sessions, 'pt-BR deve conter sidebar.sessions');
+  assert.ok(ptBR.sidebar.apiKeys, 'pt-BR deve conter sidebar.apiKeys');
+  assert.ok(ptBR.sidebar.auditLogs, 'pt-BR deve conter sidebar.auditLogs');
+  assert.ok(ptBR.sidebar.webhooks, 'pt-BR deve conter sidebar.webhooks');
 
   assert.ok(en.login.title, 'en deve conter login.title');
   assert.ok(en.login.signInButton, 'en deve conter login.signInButton');
   assert.ok(en.sidebar.users, 'en deve conter sidebar.users');
   assert.ok(en.sidebar.organizations, 'en deve conter sidebar.organizations');
   assert.ok(en.sidebar.sessions, 'en deve conter sidebar.sessions');
+  assert.ok(en.sidebar.apiKeys, 'en deve conter sidebar.apiKeys');
+  assert.ok(en.sidebar.auditLogs, 'en deve conter sidebar.auditLogs');
+  assert.ok(en.sidebar.webhooks, 'en deve conter sidebar.webhooks');
   console.log('✅ Dicionários de internacionalização i18n validados com sucesso!');
 
   console.log('\n🎉 TODOS OS TESTES DE ROTEAMENTO E AUTH PASSARAM COM SUCESSO!\n');

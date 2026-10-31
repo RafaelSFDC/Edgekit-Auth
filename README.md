@@ -11,7 +11,11 @@
 - 🪪 **Passkeys / WebAuthn (`@better-auth/passkey`)**: Autenticação biométrica sem senhas (FaceID, TouchID, Windows Hello) via FIDO2.
 - 🔐 **Autenticação em Duas Etapas (2FA / TOTP)**: Códigos de 6 dígitos via Google Authenticator, 1Password, Authy e códigos de recuperação (*backup codes*).
 - ✉️ **Passwordless & Transações por E-mail**: Magic links, recuperação de senha, confirmação de e-mail e convites de equipe via **Resend** (com modo console/dev automático para desenvolvimento local).
-- 🏢 **Multi-Tenancy & Organizações**: Gestão de equipes, convites por e-mail com expiração e token de aceite, atribuição de cargos (`admin`, `member`) e RBAC.
+- 🔑 **Chaves de API para Backends (M2M / Secret Keys)**: Geração de chaves seguras (`ek_live_...` e `ek_test_...`) com hash SHA-256 no D1 para autenticação de microsserviços via header `Authorization: Bearer <chave>` ou `x-api-key: <chave>`.
+- 📜 **Trilha de Auditoria & Segurança (`audit_log`)**: Registro imutável de eventos de autenticação, alterações de permissão, bloqueios e ações administrativas com visualizador de metadados JSON.
+- 🔔 **Webhooks Assinados & Explorer Interativo**: Disparo assíncrono com assinatura HMAC-SHA256 (`X-Edgekit-Signature`), painel de histórico de entregas e botão para envio de ping sintético de teste.
+- 🏢 **Multi-Tenancy Global & Organizações B2B**: Visão global da instância com auditoria de membros, proprietários, delegação de papéis e convites por e-mail.
+- 📱 **Auditoria e Revogação Remota de Sessões**: Inspecionador de conexões em tempo real por usuário com revogação forçada de dispositivos suspeitos.
 - 👑 **Admin CLI & Impersonation**: CLI dedicada para criar/promover administradores (`pnpm admin:create`), suspensão de contas (`ban`/`unban`), listagem e impersonação de sessões.
 - 🔑 **Validação Offline via JWKS**: Emissão de tokens JWT com chaves públicas em `/.well-known/jwks.json` e `/api/auth/jwks` para microsserviços validarem sessões sem sobrecarregar o D1.
 - ⚡ **Alta Performance no Edge**: Caching de sessão criptografado em cookies para evitar leituras repetitivas no D1, suporte a Cross-Subdomain Cookies e Rate Limiting em memória.

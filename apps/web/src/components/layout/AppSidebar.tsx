@@ -6,6 +6,8 @@ import {
   ShieldCheck,
   FileCode2,
   KeyRound,
+  ClipboardList,
+  Bell,
   Search,
 } from 'lucide-react';
 import { Link, useRouterState } from '@tanstack/react-router';
@@ -57,6 +59,21 @@ export const AppSidebar: React.FC = () => {
       to: '/sessions',
       label: t.sidebar.sessions,
       icon: <ShieldCheck className="size-4 shrink-0" />,
+    },
+    {
+      to: '/api-keys',
+      label: t.sidebar.apiKeys,
+      icon: <KeyRound className="size-4 shrink-0" />,
+    },
+    {
+      to: '/audit-logs',
+      label: t.sidebar.auditLogs,
+      icon: <ClipboardList className="size-4 shrink-0" />,
+    },
+    {
+      to: '/webhooks',
+      label: t.sidebar.webhooks,
+      icon: <Bell className="size-4 shrink-0" />,
     },
   ];
 

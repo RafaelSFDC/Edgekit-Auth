@@ -34,6 +34,9 @@ export interface Translations {
     users: string;
     organizations: string;
     sessions: string;
+    apiKeys: string;
+    auditLogs: string;
+    webhooks: string;
   };
   sidebar: {
     management: string;
@@ -41,6 +44,9 @@ export interface Translations {
     users: string;
     organizations: string;
     sessions: string;
+    apiKeys: string;
+    auditLogs: string;
+    webhooks: string;
     developer: string;
     swaggerUi: string;
     jwks: string;

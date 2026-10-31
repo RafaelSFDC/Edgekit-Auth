@@ -20,6 +20,7 @@ import {
   sendOrganizationInviteEmail,
 } from "@/lib/email";
 import { dispatchWebhook } from "@/lib/webhooks";
+import { logAuditEvent } from "@/lib/audit";
 
 export function createAuth(env: Bindings, request?: Request) {
   const db = createDb(env.DB);
@@ -120,6 +121,14 @@ export function createAuth(env: Bindings, request?: Request) {
             }
           },
           after: async (user) => {
+            await logAuditEvent(db, {
+              action: "user.created",
+              actorId: user.id,
+              actorEmail: user.email,
+              targetId: user.id,
+              targetType: "user",
+              metadata: { role: (user as any).role },
+            });
             if (env.WEBHOOK_URL) {
               await dispatchWebhook(env, {
                 event: "user.created",
@@ -136,6 +145,14 @@ export function createAuth(env: Bindings, request?: Request) {
         },
         update: {
           after: async (user) => {
+            await logAuditEvent(db, {
+              action: "user.updated",
+              actorId: user.id,
+              actorEmail: user.email,
+              targetId: user.id,
+              targetType: "user",
+              metadata: { role: (user as any).role },
+            });
             if (env.WEBHOOK_URL) {
               await dispatchWebhook(env, {
                 event: "user.updated",
@@ -154,6 +171,14 @@ export function createAuth(env: Bindings, request?: Request) {
       session: {
         create: {
           after: async (session) => {
+            await logAuditEvent(db, {
+              action: "session.created",
+              actorId: session.userId,
+              targetId: session.id,
+              targetType: "session",
+              ipAddress: session.ipAddress,
+              userAgent: session.userAgent,
+            });
             if (env.WEBHOOK_URL) {
               await dispatchWebhook(env, {
                 event: "session.created",
@@ -171,6 +196,12 @@ export function createAuth(env: Bindings, request?: Request) {
       organization: {
         create: {
           after: async (org: any) => {
+            await logAuditEvent(db, {
+              action: "organization.created",
+              targetId: org.id,
+              targetType: "organization",
+              metadata: { name: org.name, slug: org.slug },
+            });
             if (env.WEBHOOK_URL) {
               await dispatchWebhook(env, {
                 event: "organization.created",
@@ -188,6 +219,13 @@ export function createAuth(env: Bindings, request?: Request) {
       member: {
         create: {
           after: async (m: any) => {
+            await logAuditEvent(db, {
+              action: "member.created",
+              actorId: m.userId,
+              targetId: m.id,
+              targetType: "organization",
+              metadata: { organizationId: m.organizationId, role: m.role },
+            });
             if (env.WEBHOOK_URL) {
               await dispatchWebhook(env, {
                 event: "member.created",
@@ -206,6 +244,12 @@ export function createAuth(env: Bindings, request?: Request) {
       invitation: {
         create: {
           after: async (inv: any) => {
+            await logAuditEvent(db, {
+              action: "invitation.created",
+              targetId: inv.id,
+              targetType: "organization",
+              metadata: { organizationId: inv.organizationId, email: inv.email, role: inv.role },
+            });
             if (env.WEBHOOK_URL) {
               await dispatchWebhook(env, {
                 event: "invitation.created",
@@ -225,7 +269,7 @@ export function createAuth(env: Bindings, request?: Request) {
     },
     emailAndPassword: {
       enabled: true,
-      requireEmailVerification: false,
+      requireEmailVerification: env.REQUIRE_EMAIL_VERIFICATION === "true",
       sendResetPassword: async ({ user, url }: { user: { email: string }; url: string; token: string }) => {
         await sendPasswordResetEmail({
           email: user.email,

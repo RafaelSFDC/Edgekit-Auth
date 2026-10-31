@@ -69,6 +69,12 @@ export const TopHeader: React.FC = () => {
         return t.breadcrumbs.organizations;
       case '/sessions':
         return t.breadcrumbs.sessions;
+      case '/api-keys':
+        return t.breadcrumbs.apiKeys;
+      case '/audit-logs':
+        return t.breadcrumbs.auditLogs;
+      case '/webhooks':
+        return t.breadcrumbs.webhooks;
       case '/':
       default:
         return t.breadcrumbs.overview;

@@ -17,6 +17,9 @@ export interface Bindings {
   // Auto-promote specified emails to Admin role upon signup
   ADMIN_EMAILS?: string;
 
+  // Strict Email Verification Policy
+  REQUIRE_EMAIL_VERIFICATION?: string;
+
   // Social OAuth Credentials (Plug-and-play via .env)
   GOOGLE_CLIENT_ID?: string;
   GOOGLE_CLIENT_SECRET?: string;
@@ -50,6 +53,7 @@ export interface Variables {
   auth: Auth;
   userId?: string;
   sessionId?: string;
+  apiKeyId?: string;
   organizationId?: string;
 }
 

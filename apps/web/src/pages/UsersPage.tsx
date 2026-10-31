@@ -21,6 +21,7 @@ import {
   DialogDescription,
   DialogFooter,
 } from '@/components/ui/dialog';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -38,6 +39,14 @@ import {
   Loader2,
   Trash2,
   Sparkles,
+  KeyRound,
+  Laptop,
+  Smartphone,
+  Globe,
+  Copy,
+  Check,
+  Fingerprint,
+  Lock,
 } from 'lucide-react';
 
 export const UsersPage: React.FC = () => {
@@ -49,6 +58,11 @@ export const UsersPage: React.FC = () => {
   const [banReason, setBanReason] = useState('');
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [newUser, setNewUser] = useState({ name: '', email: '', password: '', role: 'user' });
+
+  // Inspection Drawer / Dialog State
+  const [inspectingUser, setInspectingUser] = useState<any | null>(null);
+  const [copiedId, setCopiedId] = useState(false);
+  const [newPasswordForUser, setNewPasswordForUser] = useState('');
 
   // Fetch users from Better Auth Admin API
   const { data, isLoading } = useQuery({
@@ -66,6 +80,25 @@ export const UsersPage: React.FC = () => {
 
   const users: any[] = data?.users || [];
 
+  // Query user sessions when inspecting a user
+  const {
+    data: userSessionsData,
+    isLoading: isLoadingSessions,
+    refetch: refetchUserSessions,
+  } = useQuery({
+    queryKey: ['admin', 'user-sessions', inspectingUser?.id],
+    queryFn: async () => {
+      if (!inspectingUser?.id) return [];
+      const res = await (authClient.admin as any).listUserSessions({
+        userId: inspectingUser.id,
+      });
+      return res.data?.sessions || res.data || [];
+    },
+    enabled: Boolean(inspectingUser?.id),
+  });
+
+  const userSessions: any[] = Array.isArray(userSessionsData) ? userSessionsData : [];
+
   // Ban Mutation
   const banMutation = useMutation({
     mutationFn: async ({ userId, reason }: { userId: string; reason?: string }) => {
@@ -76,8 +109,12 @@ export const UsersPage: React.FC = () => {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin', 'users'] });
+      queryClient.invalidateQueries({ queryKey: ['admin', 'stats'] });
       setSelectedUserForBan(null);
       setBanReason('');
+      if (inspectingUser) {
+        setInspectingUser({ ...inspectingUser, banned: true, banReason });
+      }
       toast.success('Usuário suspenso com sucesso.');
     },
     onError: (err: any) => {
@@ -92,6 +129,10 @@ export const UsersPage: React.FC = () => {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin', 'users'] });
+      queryClient.invalidateQueries({ queryKey: ['admin', 'stats'] });
+      if (inspectingUser) {
+        setInspectingUser({ ...inspectingUser, banned: false, banReason: null });
+      }
       toast.success('Acesso restaurado com sucesso.');
     },
     onError: (err: any) => {
@@ -104,8 +145,12 @@ export const UsersPage: React.FC = () => {
     mutationFn: async ({ userId, role }: { userId: string; role: string }) => {
       return (authClient.admin as any).setRole({ userId, role });
     },
-    onSuccess: () => {
+    onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ['admin', 'users'] });
+      queryClient.invalidateQueries({ queryKey: ['admin', 'stats'] });
+      if (inspectingUser && inspectingUser.id === variables.userId) {
+        setInspectingUser({ ...inspectingUser, role: variables.role });
+      }
       toast.success('Função do usuário atualizada com sucesso.');
     },
     onError: (err: any) => {
@@ -125,6 +170,7 @@ export const UsersPage: React.FC = () => {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin', 'users'] });
+      queryClient.invalidateQueries({ queryKey: ['admin', 'stats'] });
       setIsCreateModalOpen(false);
       setNewUser({ name: '', email: '', password: '', role: 'user' });
       toast.success('Usuário criado com sucesso no Cloudflare D1!');
@@ -141,6 +187,8 @@ export const UsersPage: React.FC = () => {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin', 'users'] });
+      queryClient.invalidateQueries({ queryKey: ['admin', 'stats'] });
+      setInspectingUser(null);
       toast.success('Conta de usuário removida do banco.');
     },
     onError: (err: any) => {
@@ -163,6 +211,56 @@ export const UsersPage: React.FC = () => {
       toast.error(err.message || 'Falha ao personificar usuário.');
     },
   });
+
+  // Revoke User Session Mutation
+  const revokeUserSessionMutation = useMutation({
+    mutationFn: async (sessionToken: string) => {
+      return (authClient.admin as any).revokeUserSession({ sessionToken });
+    },
+    onSuccess: () => {
+      refetchUserSessions();
+      queryClient.invalidateQueries({ queryKey: ['admin', 'stats'] });
+      toast.success('Sessão do usuário revogada com sucesso.');
+    },
+    onError: (err: any) => {
+      toast.error(err.message || 'Erro ao revogar sessão.');
+    },
+  });
+
+  // Revoke All User Sessions Mutation
+  const revokeAllUserSessionsMutation = useMutation({
+    mutationFn: async (userId: string) => {
+      return (authClient.admin as any).revokeUserSessions({ userId });
+    },
+    onSuccess: () => {
+      refetchUserSessions();
+      queryClient.invalidateQueries({ queryKey: ['admin', 'stats'] });
+      toast.success('Todas as sessões deste usuário foram revogadas.');
+    },
+    onError: (err: any) => {
+      toast.error(err.message || 'Erro ao revogar sessões.');
+    },
+  });
+
+  // Set User Password Mutation
+  const setPasswordMutation = useMutation({
+    mutationFn: async ({ userId, newPassword }: { userId: string; newPassword: string }) => {
+      return (authClient.admin as any).setUserPassword({ userId, newPassword });
+    },
+    onSuccess: () => {
+      setNewPasswordForUser('');
+      toast.success('Senha do usuário redefinida com sucesso.');
+    },
+    onError: (err: any) => {
+      toast.error(err.message || 'Erro ao redefinir senha do usuário.');
+    },
+  });
+
+  const handleCopyId = (id: string) => {
+    navigator.clipboard.writeText(id);
+    setCopiedId(true);
+    setTimeout(() => setCopiedId(false), 2000);
+  };
 
   return (
     <PageLayout>
@@ -221,7 +319,11 @@ export const UsersPage: React.FC = () => {
                     const isAdmin = u.role === 'admin';
 
                     return (
-                      <TableRow key={u.id}>
+                      <TableRow
+                        key={u.id}
+                        className="cursor-pointer hover:bg-muted/40 transition-colors"
+                        onClick={() => setInspectingUser(u)}
+                      >
                         <TableCell>
                           <div className="flex items-center gap-3">
                             <div className="size-8 rounded-full bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 flex items-center justify-center font-bold text-xs uppercase shrink-0">
@@ -259,8 +361,19 @@ export const UsersPage: React.FC = () => {
                         <TableCell className="text-[11px] font-mono text-muted-foreground">
                           {formatDate(u.createdAt)}
                         </TableCell>
-                        <TableCell className="text-right">
+                        <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
                           <div className="flex items-center justify-end gap-1">
+                            {/* Inspect Details Button */}
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => setInspectingUser(u)}
+                              title="Inspecionar Usuário & Sessões"
+                              className="size-7 text-muted-foreground hover:text-foreground hover:bg-muted"
+                            >
+                              <Eye className="size-3.5" />
+                            </Button>
+
                             {/* Impersonate Button */}
                             <Button
                               variant="ghost"
@@ -348,6 +461,280 @@ export const UsersPage: React.FC = () => {
           )}
         </CardContent>
       </Card>
+
+      {/* Modal / Drawer de Inspeção Completa do Usuário */}
+      <Dialog open={Boolean(inspectingUser)} onOpenChange={(open) => !open && setInspectingUser(null)}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          {inspectingUser && (
+            <div className="space-y-4">
+              <DialogHeader>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="size-10 rounded-full bg-indigo-500/20 border border-indigo-500/30 text-indigo-400 flex items-center justify-center font-bold text-sm uppercase">
+                      {inspectingUser.name?.[0] || inspectingUser.email?.[0] || 'U'}
+                    </div>
+                    <div>
+                      <DialogTitle className="text-base font-bold text-foreground">
+                        {inspectingUser.name || 'Sem nome cadastrado'}
+                      </DialogTitle>
+                      <DialogDescription className="text-xs text-muted-foreground font-mono">
+                        {inspectingUser.email}
+                      </DialogDescription>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Badge variant={inspectingUser.role === 'admin' ? 'default' : 'secondary'} className="text-xs">
+                      {inspectingUser.role || 'user'}
+                    </Badge>
+                    {inspectingUser.banned ? (
+                      <Badge variant="destructive" className="text-xs">Suspenso</Badge>
+                    ) : (
+                      <Badge variant="outline" className="text-xs text-emerald-500 border-emerald-500/30">Ativo</Badge>
+                    )}
+                  </div>
+                </div>
+              </DialogHeader>
+
+              {/* Tabs de Detalhes e Sessões Ativas */}
+              <Tabs defaultValue="info" className="w-full">
+                <TabsList className="grid grid-cols-2 w-full">
+                  <TabsTrigger value="info" className="text-xs">Identidade & Credenciais</TabsTrigger>
+                  <TabsTrigger value="sessions" className="text-xs">
+                    Sessões Ativas ({userSessions.length})
+                  </TabsTrigger>
+                </TabsList>
+
+                {/* Tab 1: Informações de Identidade & Credenciais */}
+                <TabsContent value="info" className="space-y-4 pt-3">
+                  <div className="grid grid-cols-2 gap-3 text-xs">
+                    <div className="p-3 rounded-lg border border-border/80 bg-muted/20 space-y-1">
+                      <span className="text-[11px] text-muted-foreground font-medium">ID da Conta (D1)</span>
+                      <div className="flex items-center justify-between font-mono text-xs">
+                        <span className="truncate">{inspectingUser.id}</span>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => handleCopyId(inspectingUser.id)}
+                          className="size-6 text-muted-foreground hover:text-foreground"
+                          title="Copiar ID"
+                        >
+                          {copiedId ? <Check className="size-3 text-emerald-500" /> : <Copy className="size-3" />}
+                        </Button>
+                      </div>
+                    </div>
+
+                    <div className="p-3 rounded-lg border border-border/80 bg-muted/20 space-y-1">
+                      <span className="text-[11px] text-muted-foreground font-medium">Verificação de Email</span>
+                      <div className="text-xs font-semibold">
+                        {inspectingUser.emailVerified ? (
+                          <span className="text-emerald-500 flex items-center gap-1">
+                            <CheckCircle className="size-3.5" /> Verificado
+                          </span>
+                        ) : (
+                          <span className="text-amber-500 flex items-center gap-1">
+                            <ShieldAlert className="size-3.5" /> Não verificado
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="p-3 rounded-lg border border-border/80 bg-muted/20 space-y-1">
+                      <span className="text-[11px] text-muted-foreground font-medium">Data de Cadastro</span>
+                      <div className="text-xs font-mono">{formatDate(inspectingUser.createdAt)}</div>
+                    </div>
+
+                    <div className="p-3 rounded-lg border border-border/80 bg-muted/20 space-y-1">
+                      <span className="text-[11px] text-muted-foreground font-medium">2FA / TOTP</span>
+                      <div className="text-xs font-semibold">
+                        {inspectingUser.twoFactorEnabled ? (
+                          <span className="text-emerald-500 flex items-center gap-1">
+                            <CheckCircle className="size-3.5" /> Ativado
+                          </span>
+                        ) : (
+                          <span className="text-muted-foreground flex items-center gap-1">Desativado</span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Redefinição de Senha Direta pelo Administrador */}
+                  <div className="p-4 rounded-lg border border-border/80 bg-card space-y-3">
+                    <div className="flex items-center gap-2">
+                      <KeyRound className="size-4 text-indigo-400" />
+                      <h4 className="text-xs font-bold text-foreground">Redefinir Senha do Usuário</h4>
+                    </div>
+                    <p className="text-[11px] text-muted-foreground">
+                      Define imediatamente uma nova senha para este usuário com hashing scrypt no Cloudflare D1.
+                    </p>
+                    <div className="flex gap-2">
+                      <Input
+                        type="password"
+                        placeholder="Digite a nova senha (mín. 8 caracteres)"
+                        value={newPasswordForUser}
+                        onChange={(e) => setNewPasswordForUser(e.target.value)}
+                        className="text-xs h-8"
+                      />
+                      <Button
+                        size="sm"
+                        disabled={!newPasswordForUser || newPasswordForUser.length < 8 || setPasswordMutation.isPending}
+                        onClick={() =>
+                          setPasswordMutation.mutate({
+                            userId: inspectingUser.id,
+                            newPassword: newPasswordForUser,
+                          })
+                        }
+                        className="h-8 text-xs shrink-0 font-semibold"
+                      >
+                        {setPasswordMutation.isPending ? (
+                          <Loader2 className="size-3.5 animate-spin" />
+                        ) : (
+                          'Atualizar Senha'
+                        )}
+                      </Button>
+                    </div>
+                  </div>
+
+                  {/* Ações de Impersonação e Suspensão */}
+                  <div className="flex flex-wrap gap-2 pt-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => impersonateMutation.mutate(inspectingUser.id)}
+                      disabled={impersonateMutation.isPending}
+                      className="text-xs gap-1.5 text-indigo-400 hover:text-indigo-300 border-indigo-500/30"
+                    >
+                      <Sparkles className="size-3.5" />
+                      <span>Personificar Conta</span>
+                    </Button>
+
+                    {inspectingUser.banned ? (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => unbanMutation.mutate(inspectingUser.id)}
+                        disabled={unbanMutation.isPending}
+                        className="text-xs gap-1.5 text-emerald-400 hover:text-emerald-300 border-emerald-500/30"
+                      >
+                        <CheckCircle className="size-3.5" />
+                        <span>Restaurar Acesso</span>
+                      </Button>
+                    ) : (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setSelectedUserForBan(inspectingUser)}
+                        className="text-xs gap-1.5 text-amber-400 hover:text-amber-300 border-amber-500/30"
+                      >
+                        <Ban className="size-3.5" />
+                        <span>Suspender Acesso</span>
+                      </Button>
+                    )}
+
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        const nextRole = inspectingUser.role === 'admin' ? 'user' : 'admin';
+                        setRoleMutation.mutate({ userId: inspectingUser.id, role: nextRole });
+                      }}
+                      disabled={setRoleMutation.isPending}
+                      className="text-xs gap-1.5 text-sky-400 hover:text-sky-300 border-sky-500/30"
+                    >
+                      <Shield className="size-3.5" />
+                      <span>{inspectingUser.role === 'admin' ? 'Rebaixar para User' : 'Promover para Admin'}</span>
+                    </Button>
+                  </div>
+                </TabsContent>
+
+                {/* Tab 2: Sessões Ativas deste Usuário */}
+                <TabsContent value="sessions" className="space-y-3 pt-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-muted-foreground">
+                      {userSessions.length} {userSessions.length === 1 ? 'sessão ativa encontrada' : 'sessões ativas encontradas'}
+                    </span>
+                    {userSessions.length > 0 && (
+                      <Button
+                        variant="destructive"
+                        size="sm"
+                        onClick={() => {
+                          if (confirm(`Revogar todas as sessões do usuário ${inspectingUser.email}?`)) {
+                            revokeAllUserSessionsMutation.mutate(inspectingUser.id);
+                          }
+                        }}
+                        disabled={revokeAllUserSessionsMutation.isPending}
+                        className="text-xs h-7 gap-1"
+                      >
+                        <Trash2 className="size-3" />
+                        <span>Revogar Todas</span>
+                      </Button>
+                    )}
+                  </div>
+
+                  {isLoadingSessions ? (
+                    <div className="p-8 text-center text-xs text-muted-foreground flex items-center justify-center gap-2">
+                      <Loader2 className="size-4 animate-spin text-indigo-500" />
+                      <span>Carregando sessões...</span>
+                    </div>
+                  ) : userSessions.length === 0 ? (
+                    <div className="p-8 text-center text-xs text-muted-foreground border border-dashed border-border rounded-lg">
+                      Nenhuma sessão ativa encontrada para este usuário.
+                    </div>
+                  ) : (
+                    <div className="space-y-2 max-h-60 overflow-y-auto">
+                      {userSessions.map((s: any) => {
+                        const isExpired = new Date(s.expiresAt).getTime() < Date.now();
+                        return (
+                          <div
+                            key={s.id || s.token}
+                            className="p-3 rounded-lg border border-border/80 bg-muted/30 flex items-center justify-between text-xs"
+                          >
+                            <div className="space-y-1 min-w-0">
+                              <div className="flex items-center gap-2">
+                                <Laptop className="size-3.5 text-muted-foreground shrink-0" />
+                                <span className="font-semibold text-foreground truncate max-w-xs">
+                                  {s.userAgent || 'Navegador desconhecido'}
+                                </span>
+                                {isExpired ? (
+                                  <Badge variant="destructive" className="text-[10px] py-0 px-1.5">
+                                    Expirada
+                                  </Badge>
+                                ) : (
+                                  <Badge variant="outline" className="text-[10px] text-emerald-500 border-emerald-500/30 py-0 px-1.5">
+                                    Ativa
+                                  </Badge>
+                                )}
+                              </div>
+                              <div className="flex items-center gap-3 text-[11px] font-mono text-muted-foreground">
+                                <span>IP: {s.ipAddress || 'Não registrado'}</span>
+                                <span>Expira: {formatDate(s.expiresAt)}</span>
+                              </div>
+                            </div>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => revokeUserSessionMutation.mutate(s.token)}
+                              disabled={revokeUserSessionMutation.isPending}
+                              className="text-destructive hover:text-destructive hover:bg-destructive/10 text-xs h-7 shrink-0"
+                            >
+                              Revogar
+                            </Button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </TabsContent>
+              </Tabs>
+
+              <DialogFooter className="pt-2 border-t border-border/60">
+                <Button variant="outline" size="sm" onClick={() => setInspectingUser(null)}>
+                  Fechar
+                </Button>
+              </DialogFooter>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
 
       {/* Modal: Criar Novo Usuário */}
       <Dialog open={isCreateModalOpen} onOpenChange={setIsCreateModalOpen}>

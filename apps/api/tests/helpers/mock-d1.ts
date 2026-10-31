@@ -4,10 +4,13 @@ import type { D1Database, D1PreparedStatement, D1Result, D1Response } from "@clo
 
 export function createMockD1(): D1Database {
   const sqlite = new DatabaseSync(":memory:");
-  const rawSql = fs.readFileSync("drizzle/migrations/0000_tearful_skrulls.sql", "utf8");
-  for (const stmt of rawSql.split("--> statement-breakpoint")) {
-    const trimmed = stmt.trim();
-    if (trimmed) sqlite.exec(trimmed);
+  const files = fs.readdirSync("drizzle/migrations").filter((f) => f.endsWith(".sql")).sort();
+  for (const file of files) {
+    const rawSql = fs.readFileSync(`drizzle/migrations/${file}`, "utf8");
+    for (const stmt of rawSql.split("--> statement-breakpoint")) {
+      const trimmed = stmt.trim();
+      if (trimmed) sqlite.exec(trimmed);
+    }
   }
 
   function createStatement(query: string, bindings: any[] = []): D1PreparedStatement {
@@ -45,6 +48,10 @@ export function createMockD1(): D1Database {
       async raw<T = unknown>(): Promise<T[]> {
         const stmt = sqlite.prepare(query);
         try {
+          if (typeof (stmt as any).setReturnArrays === "function") {
+            (stmt as any).setReturnArrays(true);
+            return stmt.all(...bindings) as any;
+          }
           const rows = stmt.all(...bindings) as any[];
           // Cloudflare D1 raw() returns each row as an array of column values
           return rows.map((row) => Object.values(row)) as any;

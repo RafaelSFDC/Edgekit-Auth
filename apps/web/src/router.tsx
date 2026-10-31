@@ -12,6 +12,9 @@ import { OverviewPage } from './pages/OverviewPage';
 import { UsersPage } from './pages/UsersPage';
 import { OrganizationsPage } from './pages/OrganizationsPage';
 import { SessionsPage } from './pages/SessionsPage';
+import { ApiKeysPage } from './pages/ApiKeysPage';
+import { AuditLogsPage } from './pages/AuditLogsPage';
+import { WebhooksPage } from './pages/WebhooksPage';
 import { useAuth } from './context/auth-context';
 import { EdgekitLogo } from './components/common/EdgekitLogo';
 
@@ -86,6 +89,24 @@ const sessionsRoute = createRoute({
   component: SessionsPage,
 });
 
+const apiKeysRoute = createRoute({
+  getParentRoute: () => dashboardRoute,
+  path: '/api-keys',
+  component: ApiKeysPage,
+});
+
+const auditLogsRoute = createRoute({
+  getParentRoute: () => dashboardRoute,
+  path: '/audit-logs',
+  component: AuditLogsPage,
+});
+
+const webhooksRoute = createRoute({
+  getParentRoute: () => dashboardRoute,
+  path: '/webhooks',
+  component: WebhooksPage,
+});
+
 // 5. Montagem da Árvore de Rotas
 const routeTree = rootRoute.addChildren([
   loginRoute,
@@ -94,6 +115,9 @@ const routeTree = rootRoute.addChildren([
     usersRoute,
     organizationsRoute,
     sessionsRoute,
+    apiKeysRoute,
+    auditLogsRoute,
+    webhooksRoute,
   ]),
 ]);
 
