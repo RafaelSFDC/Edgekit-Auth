@@ -9,6 +9,14 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from '@/components/ui/dialog';
 import { toast } from 'sonner';
 import { Fingerprint, Mail, KeyRound, Loader2, Lock, ArrowRight, ShieldCheck } from 'lucide-react';
 
@@ -21,6 +29,11 @@ export const LoginPage: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [magicLinkSent, setMagicLinkSent] = useState(false);
+
+  // Forgot Password modal state
+  const [isForgotPasswordOpen, setIsForgotPasswordOpen] = useState(false);
+  const [forgotEmail, setForgotEmail] = useState('');
+  const [isForgotLoading, setIsForgotLoading] = useState(false);
 
   const handleEmailSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -99,6 +112,30 @@ export const LoginPage: React.FC = () => {
     }
   };
 
+  const handleForgotPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!forgotEmail) return;
+    setIsForgotLoading(true);
+    try {
+      const res = await (authClient as any).requestPasswordReset({
+        email: forgotEmail,
+        redirectTo: `${window.location.origin}/reset-password`,
+      });
+
+      if (res?.error) {
+        toast.error(res.error.message || 'Falha ao solicitar recuperação de senha.');
+      } else {
+        toast.success(t.login.forgotPasswordSent);
+        setIsForgotPasswordOpen(false);
+        setForgotEmail('');
+      }
+    } catch (err: any) {
+      toast.error(err.message || 'Erro inesperado.');
+    } finally {
+      setIsForgotLoading(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-background flex flex-col items-center justify-center p-4 relative overflow-hidden select-none">
       {/* Background glow decoration */}
@@ -156,9 +193,21 @@ export const LoginPage: React.FC = () => {
                   </div>
 
                   <div className="space-y-1.5">
-                    <Label htmlFor="password" className="text-xs text-muted-foreground font-medium">
-                      {t.login.passwordLabel}
-                    </Label>
+                    <div className="flex items-center justify-between">
+                      <Label htmlFor="password" className="text-xs text-muted-foreground font-medium">
+                        {t.login.passwordLabel}
+                      </Label>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setForgotEmail(email);
+                          setIsForgotPasswordOpen(true);
+                        }}
+                        className="text-[11px] text-indigo-500 hover:text-indigo-400 hover:underline outline-hidden font-medium"
+                      >
+                        {t.login.forgotPasswordLink}
+                      </button>
+                    </div>
                     <div className="relative">
                       <Lock className="size-4 text-muted-foreground absolute left-3 top-2.5" />
                       <Input
@@ -279,6 +328,59 @@ export const LoginPage: React.FC = () => {
           {t.login.adminOnlyNotice}
         </p>
       </div>
+
+      {/* Modal de Recuperação de Senha */}
+      <Dialog open={isForgotPasswordOpen} onOpenChange={setIsForgotPasswordOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-sm font-bold flex items-center gap-2">
+              <KeyRound className="size-4 text-indigo-500" />
+              <span>{t.login.forgotPasswordModalTitle}</span>
+            </DialogTitle>
+            <DialogDescription className="text-xs text-muted-foreground">
+              {t.login.forgotPasswordModalDesc}
+            </DialogDescription>
+          </DialogHeader>
+
+          <form onSubmit={handleForgotPassword} className="space-y-4 py-2">
+            <div className="space-y-1.5">
+              <Label htmlFor="forgot-email" className="text-xs text-muted-foreground font-medium">
+                {t.login.emailLabel}
+              </Label>
+              <Input
+                id="forgot-email"
+                type="email"
+                value={forgotEmail}
+                onChange={(e) => setForgotEmail(e.target.value)}
+                placeholder={t.login.emailPlaceholder}
+                required
+                className="text-xs"
+              />
+            </div>
+
+            <DialogFooter className="gap-2 sm:gap-0 mt-4">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setIsForgotPasswordOpen(false)}
+                className="text-xs"
+              >
+                {t.common.cancel}
+              </Button>
+              <Button
+                type="submit"
+                size="sm"
+                disabled={isForgotLoading}
+                className="text-xs font-semibold gap-1.5"
+              >
+                {isForgotLoading && <Loader2 className="size-3.5 animate-spin" />}
+                <span>{t.login.forgotPasswordSubmit}</span>
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   Globe,
   Sun,
@@ -8,11 +8,13 @@ import {
   ShieldCheck,
   Sparkles,
   Zap,
+  Loader2,
 } from 'lucide-react';
 import { EdgekitLogo } from '../common/EdgekitLogo';
 import { useI18n } from '../../i18n/context';
 import { useTheme } from '../../theme/context';
 import { useAuth } from '../../context/auth-context';
+import { authClient } from '../../lib/auth-client';
 import { useSidebar, SidebarTrigger } from '@/components/ui/sidebar';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -35,15 +37,29 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from '@/components/ui/breadcrumb';
+import { toast } from 'sonner';
 
 export const TopHeader: React.FC = () => {
   const { locale, toggleLocale, t } = useI18n();
   const { resolvedTheme, toggleTheme } = useTheme();
   const { user, isImpersonating, signOut } = useAuth();
   const { state } = useSidebar();
+  const [isStoppingImpersonation, setIsStoppingImpersonation] = useState(false);
 
   const routerState = useRouterState();
   const pathname = routerState.location.pathname;
+
+  const handleStopImpersonating = async () => {
+    setIsStoppingImpersonation(true);
+    try {
+      await (authClient.admin as any).stopImpersonating();
+      toast.success('Personificação encerrada.');
+      window.location.reload();
+    } catch (err: any) {
+      toast.error(err.message || 'Erro ao sair da personificação.');
+      setIsStoppingImpersonation(false);
+    }
+  };
 
   const getBreadcrumbs = () => {
     switch (pathname) {
@@ -81,7 +97,7 @@ export const TopHeader: React.FC = () => {
           {state !== 'collapsed' && (
             <div className="flex items-center gap-1.5 overflow-hidden whitespace-nowrap">
               <span className="font-bold tracking-tight text-foreground text-sm">Edgekit</span>
-              <span className="font-semibold text-indigo-500 text-sm">Auth</span>
+              <span className="semibold text-indigo-500 text-sm">Auth</span>
               <span className="ml-1 rounded px-1.5 py-0.2 text-[10px] font-mono font-medium bg-muted text-muted-foreground border border-border">
                 v1.0
               </span>
@@ -124,12 +140,22 @@ export const TopHeader: React.FC = () => {
             <span>{t.topHeader.online}</span>
           </div>
 
-          {/* Impersonation Indicator if active */}
+          {/* Impersonation Indicator and Exit Button if active */}
           {isImpersonating && (
-            <Badge variant="outline" className="flex items-center gap-1 text-[11px] px-2 py-0.5 text-amber-500 border-amber-500/30 bg-amber-500/10">
-              <Sparkles className="size-3" />
-              <span>{t.topHeader.impersonateMode}</span>
-            </Badge>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleStopImpersonating}
+              disabled={isStoppingImpersonation}
+              className="h-7 px-2.5 gap-1.5 text-[11px] font-semibold text-amber-500 border-amber-500/30 bg-amber-500/10 hover:bg-amber-500/20 transition-colors"
+            >
+              {isStoppingImpersonation ? (
+                <Loader2 className="size-3 animate-spin" />
+              ) : (
+                <Sparkles className="size-3" />
+              )}
+              <span>{t.topHeader.stopImpersonating}</span>
+            </Button>
           )}
 
           {/* D1 SQLite Badge */}
@@ -167,7 +193,7 @@ export const TopHeader: React.FC = () => {
               render={
                 <button
                   type="button"
-                  className="flex items-center gap-2 pl-2 pr-1 py-1 rounded-full hover:bg-muted/60 transition-colors border border-transparent hover:border-border/60 outline-hidden"
+                  className="flex items-center gap-2 pl-2 pr-1 py-1 rounded-full hover:bg-muted/60 transition-colors border border-transparent hover:border-border/60 outline-hidden cursor-pointer"
                 >
                   <div className="size-6 rounded-full bg-indigo-500/20 border border-indigo-500/30 text-indigo-400 flex items-center justify-center font-bold text-xs uppercase">
                     {user?.name?.[0] || user?.email?.[0] || 'A'}
@@ -185,9 +211,22 @@ export const TopHeader: React.FC = () => {
                 </DropdownMenuLabel>
               </DropdownMenuGroup>
               <DropdownMenuSeparator />
+              {isImpersonating && (
+                <>
+                  <DropdownMenuItem
+                    onClick={handleStopImpersonating}
+                    disabled={isStoppingImpersonation}
+                    className="text-amber-500 focus:text-amber-500 focus:bg-amber-500/10 cursor-pointer text-xs font-medium"
+                  >
+                    <Sparkles className="mr-2 size-3.5" />
+                    <span>{t.topHeader.stopImpersonating}</span>
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                </>
+              )}
               <DropdownMenuItem
                 onClick={signOut}
-                className="text-destructive focus:text-destructive focus:bg-destructive/10 cursor-pointer text-xs"
+                className="text-destructive focus:text-destructive focus:bg-destructive/10 cursor-pointer text-xs font-medium"
               >
                 <LogOut className="mr-2 size-3.5" />
                 <span>{t.topHeader.signOut}</span>

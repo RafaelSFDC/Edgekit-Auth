@@ -60,6 +60,20 @@ export function createAuth(env: Bindings, request?: Request) {
     };
   }
 
+  if (env.APPLE_CLIENT_ID && env.APPLE_CLIENT_SECRET) {
+    socialProviders.apple = {
+      clientId: env.APPLE_CLIENT_ID,
+      clientSecret: env.APPLE_CLIENT_SECRET,
+    };
+  }
+
+  if (env.GITLAB_CLIENT_ID && env.GITLAB_CLIENT_SECRET) {
+    socialProviders.gitlab = {
+      clientId: env.GITLAB_CLIENT_ID,
+      clientSecret: env.GITLAB_CLIENT_SECRET,
+    };
+  }
+
   return betterAuth({
     baseURL,
     secret,
@@ -148,6 +162,60 @@ export function createAuth(env: Bindings, request?: Request) {
                   userId: session.userId,
                   expiresAt: session.expiresAt,
                   createdAt: session.createdAt,
+                },
+              });
+            }
+          },
+        },
+      },
+      organization: {
+        create: {
+          after: async (org: any) => {
+            if (env.WEBHOOK_URL) {
+              await dispatchWebhook(env, {
+                event: "organization.created",
+                data: {
+                  id: org.id,
+                  name: org.name,
+                  slug: org.slug,
+                  createdAt: org.createdAt,
+                },
+              });
+            }
+          },
+        },
+      },
+      member: {
+        create: {
+          after: async (m: any) => {
+            if (env.WEBHOOK_URL) {
+              await dispatchWebhook(env, {
+                event: "member.created",
+                data: {
+                  id: m.id,
+                  organizationId: m.organizationId,
+                  userId: m.userId,
+                  role: m.role,
+                  createdAt: m.createdAt,
+                },
+              });
+            }
+          },
+        },
+      },
+      invitation: {
+        create: {
+          after: async (inv: any) => {
+            if (env.WEBHOOK_URL) {
+              await dispatchWebhook(env, {
+                event: "invitation.created",
+                data: {
+                  id: inv.id,
+                  organizationId: inv.organizationId,
+                  email: inv.email,
+                  role: inv.role,
+                  status: inv.status,
+                  createdAt: inv.createdAt,
                 },
               });
             }

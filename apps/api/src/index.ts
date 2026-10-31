@@ -41,8 +41,36 @@ app.get("/", async (c) => {
   });
 });
 
-app.get("/health", (c) => {
-  return c.json({ status: "healthy", timestamp: new Date().toISOString() });
+app.get("/health", async (c) => {
+  const start = Date.now();
+  let dbStatus = "connected";
+  let latencyMs = 0;
+
+  try {
+    if (c.env?.DB) {
+      await c.env.DB.prepare("SELECT 1 as ping;").first();
+      latencyMs = Date.now() - start;
+    } else {
+      dbStatus = "unbound";
+    }
+  } catch (err: any) {
+    return c.json(
+      {
+        status: "unhealthy",
+        database: "disconnected",
+        error: err.message || "Failed to query D1 database",
+        timestamp: new Date().toISOString(),
+      },
+      503
+    );
+  }
+
+  return c.json({
+    status: "healthy",
+    database: dbStatus,
+    latencyMs,
+    timestamp: new Date().toISOString(),
+  });
 });
 
 // Forward /.well-known/jwks.json directly to Better Auth's JWKS endpoint

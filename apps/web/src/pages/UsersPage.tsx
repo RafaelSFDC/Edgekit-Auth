@@ -25,7 +25,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
-import { formatDate } from '../lib/utils';
+import { formatDate, cn } from '../lib/utils';
 import { toast } from 'sonner';
 import {
   Search,
@@ -96,6 +96,20 @@ export const UsersPage: React.FC = () => {
     },
     onError: (err: any) => {
       toast.error(err.message || 'Erro ao desbanir usuário.');
+    },
+  });
+
+  // Set Role Mutation
+  const setRoleMutation = useMutation({
+    mutationFn: async ({ userId, role }: { userId: string; role: string }) => {
+      return (authClient.admin as any).setRole({ userId, role });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin', 'users'] });
+      toast.success('Função do usuário atualizada com sucesso.');
+    },
+    onError: (err: any) => {
+      toast.error(err.message || 'Erro ao alterar função.');
     },
   });
 
@@ -282,6 +296,31 @@ export const UsersPage: React.FC = () => {
                                 <Ban className="size-3.5" />
                               </Button>
                             )}
+
+                            {/* Toggle Role Button */}
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => {
+                                const nextRole = isAdmin ? 'user' : 'admin';
+                                const confirmMsg = isAdmin
+                                  ? `Rebaixar ${u.email} para usuário comum?`
+                                  : `Promover ${u.email} para Administrador?`;
+                                if (confirm(confirmMsg)) {
+                                  setRoleMutation.mutate({ userId: u.id, role: nextRole });
+                                }
+                              }}
+                              disabled={setRoleMutation.isPending}
+                              title={isAdmin ? t.users.actions.demoteUser : t.users.actions.promoteAdmin}
+                              className={cn(
+                                'size-7',
+                                isAdmin
+                                  ? 'text-sky-400 hover:text-sky-300 hover:bg-sky-500/10'
+                                  : 'text-muted-foreground hover:text-foreground hover:bg-muted'
+                              )}
+                            >
+                              <Shield className="size-3.5" />
+                            </Button>
 
                             {/* Delete Button */}
                             <Button

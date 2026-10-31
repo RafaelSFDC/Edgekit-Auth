@@ -41,16 +41,17 @@ function runD1Command(sql: string, isRemote = false): any {
 async function main() {
   const flags = parseArgs();
   const isRemote = Boolean(flags.remote);
-  const email = (flags.email as string) || (flags.promote as string);
+  const email = (flags.email as string) || (flags.promote as string) || (flags.demote as string) || (flags.ban as string) || (flags.unban as string);
   const password = flags.password as string;
   const name = (flags.name as string) || "Administrator";
   const listOnly = Boolean(flags.list);
+  const reason = (flags.reason as string) || "Suspenso via CLI Admin";
 
   console.log(`\n⚡ [Edgekit Auth] Admin Management CLI (${isRemote ? "REMOTE D1" : "LOCAL D1"})\n`);
 
   if (listOnly) {
     console.log("📋 Listando administradores cadastrados...");
-    const res = runD1Command("SELECT id, name, email, role, created_at FROM user WHERE role = 'admin';", isRemote);
+    const res = runD1Command("SELECT id, name, email, role, banned, created_at FROM user WHERE role = 'admin';", isRemote);
     const admins = res?.[0]?.results || [];
     if (admins.length === 0) {
       console.log("Nenhum usuário com papel 'admin' encontrado no banco.");
@@ -60,22 +61,73 @@ async function main() {
     return;
   }
 
+  if (flags.all) {
+    console.log("📋 Listando todos os usuários cadastrados...");
+    const res = runD1Command("SELECT id, name, email, role, banned, created_at FROM user LIMIT 50;", isRemote);
+    const users = res?.[0]?.results || [];
+    console.table(users);
+    return;
+  }
+
   if (!email) {
     console.log("Uso:");
-    console.log("  1. Promover usuário existente a admin:");
+    console.log("  1. Promover usuário a admin:");
     console.log("     pnpm admin:promote --email usuario@exemplo.com [--remote]\n");
-    console.log("  2. Criar novo administrador do zero:");
+    console.log("  2. Rebaixar admin para usuário comum:");
+    console.log("     tsx scripts/create-admin.ts --demote usuario@exemplo.com [--remote]\n");
+    console.log("  3. Suspender / Banir usuário:");
+    console.log("     tsx scripts/create-admin.ts --ban usuario@exemplo.com --reason \"Motivo\" [--remote]\n");
+    console.log("  4. Reativar / Desbanir usuário:");
+    console.log("     tsx scripts/create-admin.ts --unban usuario@exemplo.com [--remote]\n");
+    console.log("  5. Criar novo administrador do zero:");
     console.log("     pnpm admin:create --email admin@exemplo.com --password SenhaForte123! --name \"Admin\" [--remote]\n");
-    console.log("  3. Listar administradores atuais:");
+    console.log("  6. Listar administradores:");
     console.log("     pnpm admin:list [--remote]\n");
     process.exit(0);
   }
 
   // Check if user already exists
-  const checkSql = `SELECT id, name, email, role FROM user WHERE lower(email) = lower('${email}');`;
+  const checkSql = `SELECT id, name, email, role, banned FROM user WHERE lower(email) = lower('${email}');`;
   const checkRes = runD1Command(checkSql, isRemote);
   const existingUser = checkRes?.[0]?.results?.[0];
 
+  // Action: Demote
+  if (flags.demote) {
+    if (!existingUser) {
+      console.error(`❌ Usuário com email '${email}' não encontrado.`);
+      process.exit(1);
+    }
+    console.log(`Rebaixando '${email}' para 'user'...`);
+    runD1Command(`UPDATE user SET role = 'user' WHERE id = '${existingUser.id}';`, isRemote);
+    console.log(`✅ Sucesso! O usuário '${email}' agora possui papel 'user'.`);
+    return;
+  }
+
+  // Action: Ban
+  if (flags.ban) {
+    if (!existingUser) {
+      console.error(`❌ Usuário com email '${email}' não encontrado.`);
+      process.exit(1);
+    }
+    console.log(`Suspendendo '${email}' (Motivo: ${reason})...`);
+    runD1Command(`UPDATE user SET banned = 1, ban_reason = '${reason.replace(/'/g, "''")}' WHERE id = '${existingUser.id}';`, isRemote);
+    console.log(`✅ Sucesso! O usuário '${email}' foi suspenso.`);
+    return;
+  }
+
+  // Action: Unban
+  if (flags.unban) {
+    if (!existingUser) {
+      console.error(`❌ Usuário com email '${email}' não encontrado.`);
+      process.exit(1);
+    }
+    console.log(`Reativando usuário '${email}'...`);
+    runD1Command(`UPDATE user SET banned = 0, ban_reason = NULL WHERE id = '${existingUser.id}';`, isRemote);
+    console.log(`✅ Sucesso! O usuário '${email}' teve o acesso reativado.`);
+    return;
+  }
+
+  // Action: Promote
   if (existingUser) {
     if (existingUser.role === "admin") {
       console.log(`ℹ️  O usuário '${email}' já possui privilégios de 'admin'.`);
@@ -89,7 +141,7 @@ async function main() {
     return;
   }
 
-  // User does not exist, check if password provided to create from scratch
+  // Action: Create from scratch
   if (!password) {
     console.error(`❌ Usuário com email '${email}' não encontrado.`);
     console.log("💡 Para criar um novo usuário admin, forneça também a flag '--password':");

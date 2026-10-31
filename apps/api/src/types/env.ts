@@ -12,6 +12,7 @@ export interface Bindings {
   BETTER_AUTH_URL?: string;
   COOKIE_SECRET?: string;
   COOKIE_DOMAIN?: string;
+  ALLOWED_ORIGINS?: string;
 
   // Auto-promote specified emails to Admin role upon signup
   ADMIN_EMAILS?: string;
@@ -28,6 +29,12 @@ export interface Bindings {
 
   MICROSOFT_CLIENT_ID?: string;
   MICROSOFT_CLIENT_SECRET?: string;
+
+  APPLE_CLIENT_ID?: string;
+  APPLE_CLIENT_SECRET?: string;
+
+  GITLAB_CLIENT_ID?: string;
+  GITLAB_CLIENT_SECRET?: string;
 
   // Email Service (Resend)
   RESEND_API_KEY?: string;

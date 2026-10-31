@@ -26,11 +26,31 @@ describe("Edgekit Auth (Better Auth) Integration Tests", () => {
       expect(body.engine).toBe("better-auth");
     });
 
-    it("GET /health should return healthy status", async () => {
+    it("GET /health should return healthy status and active D1 ping", async () => {
       const res = await app.request("/health", {}, mockEnv);
       expect(res.status).toBe(200);
       const body = (await res.json()) as any;
       expect(body.status).toBe("healthy");
+      expect(body.database).toBe("connected");
+      expect(typeof body.latencyMs).toBe("number");
+    });
+
+    it("GET /health should return 503 when D1 fails", async () => {
+      const failingEnv: Bindings = {
+        ...mockEnv,
+        DB: {
+          prepare: () => {
+            throw new Error("D1 connection refused");
+          },
+        } as any,
+      };
+
+      const res = await app.request("/health", {}, failingEnv);
+      expect(res.status).toBe(503);
+      const body = (await res.json()) as any;
+      expect(body.status).toBe("unhealthy");
+      expect(body.database).toBe("disconnected");
+      expect(body.error).toContain("D1 connection refused");
     });
 
     it("GET /.well-known/jwks.json should forward to Better Auth JWKS", async () => {
@@ -63,6 +83,47 @@ describe("Edgekit Auth (Better Auth) Integration Tests", () => {
       expect(res.status).toBe(200);
       const html = await res.text();
       expect(html).toContain("swagger-ui");
+    });
+  });
+
+  describe("CORS Policy Enforcement", () => {
+    it("should allow any origin in development fallback mode", async () => {
+      const res = await app.request(
+        "/health",
+        {
+          headers: { Origin: "http://localhost:3000" },
+        },
+        mockEnv
+      );
+      expect(res.headers.get("access-control-allow-origin")).toBe("http://localhost:3000");
+      expect(res.headers.get("access-control-allow-credentials")).toBe("true");
+    });
+
+    it("should restrict origins when ALLOWED_ORIGINS is configured", async () => {
+      const strictEnv: Bindings = {
+        ...mockEnv,
+        ALLOWED_ORIGINS: "https://my-app.com,https://admin.my-app.com",
+      };
+
+      // Allowed origin
+      const allowedRes = await app.request(
+        "/health",
+        {
+          headers: { Origin: "https://my-app.com" },
+        },
+        strictEnv
+      );
+      expect(allowedRes.headers.get("access-control-allow-origin")).toBe("https://my-app.com");
+
+      // Disallowed origin
+      const disallowedRes = await app.request(
+        "/health",
+        {
+          headers: { Origin: "https://malicious-site.com" },
+        },
+        strictEnv
+      );
+      expect(disallowedRes.headers.get("access-control-allow-origin")).toBeNull();
     });
   });
 

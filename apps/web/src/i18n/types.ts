@@ -23,6 +23,7 @@ export interface Translations {
   topHeader: {
     online: string;
     impersonateMode: string;
+    stopImpersonating: string;
     d1Sqlite: string;
     signOut: string;
     themeTooltip: string;
@@ -62,6 +63,11 @@ export interface Translations {
     magicLinkDesc: string;
     magicLinkSentTitle: string;
     magicLinkSentDesc: string;
+    forgotPasswordLink: string;
+    forgotPasswordModalTitle: string;
+    forgotPasswordModalDesc: string;
+    forgotPasswordSubmit: string;
+    forgotPasswordSent: string;
     adminOnlyNotice: string;
     errorCredentials: string;
     errorNotAdmin: string;
@@ -117,6 +123,9 @@ export interface Translations {
       ban: string;
       unban: string;
       delete: string;
+      promoteAdmin: string;
+      demoteUser: string;
+      changeRole: string;
     };
   };
   organizations: {
@@ -124,8 +133,13 @@ export interface Translations {
     subtitle: string;
     selectOrg: string;
     createOrg: string;
+    deleteOrg: string;
+    deleteOrgConfirm: string;
     membersTitle: string;
     inviteMember: string;
+    changeMemberRole: string;
+    removeMember: string;
+    removeMemberConfirm: string;
     createModal: {
       title: string;
       description: string;

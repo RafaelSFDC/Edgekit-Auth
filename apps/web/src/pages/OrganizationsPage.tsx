@@ -134,6 +134,42 @@ export const OrganizationsPage: React.FC = () => {
     },
   });
 
+  // Update Member Role Mutation
+  const updateRoleMutation = useMutation({
+    mutationFn: async ({ memberId, role }: { memberId: string; role: string }) => {
+      if (!activeOrgId) return;
+      return authClient.organization.updateMemberRole({
+        organizationId: activeOrgId,
+        memberId,
+        role: role as any,
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['organization', 'full', activeOrgId] });
+      toast.success('Papel do membro atualizado com sucesso.');
+    },
+    onError: (err: any) => {
+      toast.error(err.message || 'Erro ao atualizar papel do membro.');
+    },
+  });
+
+  // Delete Organization Mutation
+  const deleteOrgMutation = useMutation({
+    mutationFn: async (organizationId: string) => {
+      return authClient.organization.delete({
+        organizationId,
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['organizations'] });
+      setSelectedOrgId(null);
+      toast.success('Organização excluída com sucesso.');
+    },
+    onError: (err: any) => {
+      toast.error(err.message || 'Erro ao excluir organização.');
+    },
+  });
+
   const activeOrg = organizations.find((o) => o.id === activeOrgId);
   const members = fullOrgData?.members || [];
   const invitations = fullOrgData?.invitations || [];
@@ -211,15 +247,32 @@ export const OrganizationsPage: React.FC = () => {
                 </div>
               </div>
 
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setIsInviteModalOpen(true)}
-                className="gap-2 text-xs font-medium"
-              >
-                <UserPlus className="size-3.5 text-indigo-500" />
-                <span>{t.organizations.inviteMember}</span>
-              </Button>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setIsInviteModalOpen(true)}
+                  className="gap-2 text-xs font-medium"
+                >
+                  <UserPlus className="size-3.5 text-indigo-500" />
+                  <span>{t.organizations.inviteMember}</span>
+                </Button>
+
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    if (confirm(t.organizations.deleteOrgConfirm)) {
+                      deleteOrgMutation.mutate(activeOrg.id);
+                    }
+                  }}
+                  disabled={deleteOrgMutation.isPending}
+                  className="gap-2 text-xs font-medium text-destructive hover:text-destructive hover:bg-destructive/10"
+                >
+                  <Trash2 className="size-3.5" />
+                  <span>{t.organizations.deleteOrg}</span>
+                </Button>
+              </div>
             </CardHeader>
 
             {/* Lista de Membros */}
@@ -279,19 +332,36 @@ export const OrganizationsPage: React.FC = () => {
                           </TableCell>
                           <TableCell className="text-right">
                             {!isOwner && (
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                onClick={() => {
-                                  if (confirm(`Remover ${m.user?.email} da organização?`)) {
-                                    removeMemberMutation.mutate(m.id);
-                                  }
-                                }}
-                                disabled={removeMemberMutation.isPending}
-                                className="size-7 text-destructive hover:bg-destructive/10"
-                              >
-                                <Trash2 className="size-3.5" />
-                              </Button>
+                              <div className="flex items-center justify-end gap-1">
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  onClick={() => {
+                                    const nextRole = isAdmin ? 'member' : 'admin';
+                                    updateRoleMutation.mutate({ memberId: m.id, role: nextRole });
+                                  }}
+                                  disabled={updateRoleMutation.isPending}
+                                  title={t.organizations.changeMemberRole}
+                                  className="size-7 text-sky-400 hover:text-sky-300 hover:bg-sky-500/10"
+                                >
+                                  <Shield className="size-3.5" />
+                                </Button>
+
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  onClick={() => {
+                                    if (confirm(t.organizations.removeMemberConfirm)) {
+                                      removeMemberMutation.mutate(m.id);
+                                    }
+                                  }}
+                                  disabled={removeMemberMutation.isPending}
+                                  title={t.organizations.removeMember}
+                                  className="size-7 text-destructive hover:bg-destructive/10"
+                                >
+                                  <Trash2 className="size-3.5" />
+                                </Button>
+                              </div>
                             )}
                           </TableCell>
                         </TableRow>
