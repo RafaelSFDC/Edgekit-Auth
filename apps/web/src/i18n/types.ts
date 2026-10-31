@@ -78,6 +78,40 @@ export interface Translations {
     errorCredentials: string;
     errorNotAdmin: string;
     authenticating: string;
+    twoFactorTitle: string;
+    twoFactorSubtitle: string;
+    twoFactorCodeLabel: string;
+    twoFactorBackupLabel: string;
+    twoFactorSubmit: string;
+    twoFactorUseBackup: string;
+    twoFactorUseTotp: string;
+    twoFactorBack: string;
+    twoFactorError: string;
+  };
+  resetPassword: {
+    title: string;
+    subtitle: string;
+    newPasswordLabel: string;
+    confirmPasswordLabel: string;
+    submitButton: string;
+    backToLogin: string;
+    successTitle: string;
+    successDesc: string;
+    invalidToken: string;
+    passwordMismatch: string;
+    passwordTooShort: string;
+  };
+  acceptInvitation: {
+    title: string;
+    subtitle: string;
+    acceptButton: string;
+    rejectButton: string;
+    accepting: string;
+    acceptedSuccess: string;
+    rejectedSuccess: string;
+    errorLoading: string;
+    backToConsole: string;
+    loginRequired: string;
   };
   overview: {
     title: string;

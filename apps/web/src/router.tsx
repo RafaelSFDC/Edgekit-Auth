@@ -8,6 +8,8 @@ import {
 } from '@tanstack/react-router';
 import { DashboardLayout } from './components/layout/DashboardLayout';
 import { LoginPage } from './pages/LoginPage';
+import { ResetPasswordPage } from './pages/ResetPasswordPage';
+import { AcceptInvitationPage } from './pages/AcceptInvitationPage';
 import { OverviewPage } from './pages/OverviewPage';
 import { UsersPage } from './pages/UsersPage';
 import { OrganizationsPage } from './pages/OrganizationsPage';
@@ -50,11 +52,23 @@ const rootRoute = createRootRoute({
   component: Outlet,
 });
 
-// 2. Rota pública de Login (fora do DashboardLayout)
+// 2. Rotas públicas (fora do DashboardLayout)
 const loginRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/login',
   component: LoginPage,
+});
+
+const resetPasswordRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/reset-password',
+  component: ResetPasswordPage,
+});
+
+const acceptInvitationRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/accept-invitation',
+  component: AcceptInvitationPage,
 });
 
 // 3. Layout Route da Dashboard protegida pelo DashboardGuard
@@ -110,6 +124,8 @@ const webhooksRoute = createRoute({
 // 5. Montagem da Árvore de Rotas
 const routeTree = rootRoute.addChildren([
   loginRoute,
+  resetPasswordRoute,
+  acceptInvitationRoute,
   dashboardRoute.addChildren([
     indexRoute,
     usersRoute,

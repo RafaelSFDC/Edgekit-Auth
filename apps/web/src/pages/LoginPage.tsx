@@ -35,6 +35,12 @@ export const LoginPage: React.FC = () => {
   const [forgotEmail, setForgotEmail] = useState('');
   const [isForgotLoading, setIsForgotLoading] = useState(false);
 
+  // Two-Factor Authentication (2FA) State
+  const [isTwoFactorStep, setIsTwoFactorStep] = useState(false);
+  const [twoFactorCode, setTwoFactorCode] = useState('');
+  const [isBackupCodeMode, setIsBackupCodeMode] = useState(false);
+  const [isTwoFactorLoading, setIsTwoFactorLoading] = useState(false);
+
   const handleEmailSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
@@ -48,6 +54,13 @@ export const LoginPage: React.FC = () => {
 
       if (res.error) {
         setErrorMsg(res.error.message || t.login.errorCredentials);
+        setIsLoading(false);
+        return;
+      }
+
+      // Check if 2FA challenge is requested
+      if ((res.data as any)?.twoFactorRedirect) {
+        setIsTwoFactorStep(true);
         setIsLoading(false);
         return;
       }
@@ -66,6 +79,46 @@ export const LoginPage: React.FC = () => {
       setErrorMsg(err.message || 'Erro inesperado ao conectar à API.');
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleVerifyTwoFactor = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!twoFactorCode.trim()) return;
+    setIsTwoFactorLoading(true);
+    setErrorMsg(null);
+
+    try {
+      let res: any;
+      if (isBackupCodeMode) {
+        res = await (authClient as any).twoFactor.verifyBackupCode({
+          code: twoFactorCode.trim(),
+        });
+      } else {
+        res = await (authClient as any).twoFactor.verifyTOTP({
+          code: twoFactorCode.trim(),
+        });
+      }
+
+      if (res?.error) {
+        setErrorMsg(res.error.message || t.login.twoFactorError);
+        setIsTwoFactorLoading(false);
+        return;
+      }
+
+      const session = await authClient.getSession();
+      if ((session?.data?.user as any)?.role !== 'admin') {
+        setErrorMsg(t.login.errorNotAdmin);
+        setIsTwoFactorLoading(false);
+        return;
+      }
+
+      toast.success('Login efetuado com sucesso!');
+      navigate({ to: '/' });
+    } catch (err: any) {
+      setErrorMsg(err.message || t.login.twoFactorError);
+    } finally {
+      setIsTwoFactorLoading(false);
     }
   };
 
@@ -152,159 +205,189 @@ export const LoginPage: React.FC = () => {
 
         <Card className="border-border/80 shadow-xl bg-card/90 backdrop-blur-xl">
           <CardHeader className="pb-4">
-            <Tabs defaultValue="password" className="w-full">
-              <TabsList className="grid grid-cols-3 w-full bg-muted/60 p-1">
-                <TabsTrigger value="password" className="text-xs">
-                  {t.login.emailTab}
-                </TabsTrigger>
-                <TabsTrigger value="passkey" className="text-xs">
-                  {t.login.passkeyTab}
-                </TabsTrigger>
-                <TabsTrigger value="magic" className="text-xs">
-                  {t.login.magicLinkTab}
-                </TabsTrigger>
-              </TabsList>
+            {isTwoFactorStep ? (
+              <div className="space-y-4">
+                <div className="text-center space-y-1.5 pb-2 border-b border-border/60">
+                  <div className="size-10 rounded-full bg-indigo-500/10 text-indigo-500 flex items-center justify-center mx-auto mb-2">
+                    <ShieldCheck className="size-5" />
+                  </div>
+                  <h3 className="text-sm font-bold text-foreground">{t.login.twoFactorTitle}</h3>
+                  <p className="text-xs text-muted-foreground">
+                    {t.login.twoFactorSubtitle}
+                  </p>
+                </div>
 
-              {errorMsg && (
-                <Alert variant="destructive" className="mt-4 text-xs">
-                  <AlertDescription>{errorMsg}</AlertDescription>
-                </Alert>
-              )}
+                {errorMsg && (
+                  <Alert variant="destructive" className="text-xs">
+                    <AlertDescription>{errorMsg}</AlertDescription>
+                  </Alert>
+                )}
 
-              {/* Aba 1: Email e Senha */}
-              <TabsContent value="password" className="mt-4">
-                <form onSubmit={handleEmailSignIn} className="space-y-4">
+                <form onSubmit={handleVerifyTwoFactor} className="space-y-4">
                   <div className="space-y-1.5">
-                    <Label htmlFor="email" className="text-xs text-muted-foreground font-medium">
-                      {t.login.emailLabel}
+                    <Label htmlFor="twoFactorCode" className="text-xs text-muted-foreground font-medium">
+                      {isBackupCodeMode ? t.login.twoFactorBackupLabel : t.login.twoFactorCodeLabel}
                     </Label>
-                    <div className="relative">
-                      <Mail className="size-4 text-muted-foreground absolute left-3 top-2.5" />
-                      <Input
-                        id="email"
-                        type="email"
-                        value={email}
-                        onChange={(e) => setEmail(e.target.value)}
-                        placeholder={t.login.emailPlaceholder}
-                        required
-                        className="pl-9 text-xs"
-                      />
-                    </div>
+                    <Input
+                      id="twoFactorCode"
+                      type="text"
+                      autoFocus
+                      value={twoFactorCode}
+                      onChange={(e) => setTwoFactorCode(e.target.value)}
+                      placeholder={isBackupCodeMode ? 'Ex: a1b2c3d4' : '000000'}
+                      maxLength={isBackupCodeMode ? 25 : 6}
+                      className="text-center font-mono tracking-widest text-base py-5"
+                      required
+                    />
                   </div>
 
-                  <div className="space-y-1.5">
-                    <div className="flex items-center justify-between">
-                      <Label htmlFor="password" className="text-xs text-muted-foreground font-medium">
-                        {t.login.passwordLabel}
-                      </Label>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setForgotEmail(email);
-                          setIsForgotPasswordOpen(true);
-                        }}
-                        className="text-[11px] text-indigo-500 hover:text-indigo-400 hover:underline outline-hidden font-medium"
-                      >
-                        {t.login.forgotPasswordLink}
-                      </button>
-                    </div>
-                    <div className="relative">
-                      <Lock className="size-4 text-muted-foreground absolute left-3 top-2.5" />
-                      <Input
-                        id="password"
-                        type="password"
-                        value={password}
-                        onChange={(e) => setPassword(e.target.value)}
-                        placeholder={t.login.passwordPlaceholder}
-                        required
-                        className="pl-9 text-xs"
-                      />
-                    </div>
-                  </div>
-
-                  <Button type="submit" disabled={isLoading} className="w-full text-xs font-semibold mt-2">
-                    {isLoading ? (
+                  <Button
+                    type="submit"
+                    disabled={isTwoFactorLoading}
+                    className="w-full text-xs font-semibold"
+                  >
+                    {isTwoFactorLoading ? (
                       <>
                         <Loader2 className="mr-2 size-3.5 animate-spin" />
                         {t.login.authenticating}
                       </>
                     ) : (
                       <>
-                        <span>{t.login.signInButton}</span>
-                        <ArrowRight className="ml-2 size-3.5" />
+                        <ShieldCheck className="mr-2 size-3.5" />
+                        <span>{t.login.twoFactorSubmit}</span>
                       </>
                     )}
                   </Button>
                 </form>
-              </TabsContent>
 
-              {/* Aba 2: Passkey WebAuthn */}
-              <TabsContent value="passkey" className="mt-4 space-y-4">
-                <div className="p-4 rounded-lg bg-muted/40 border border-border/60 text-center space-y-3">
-                  <div className="size-10 rounded-full bg-indigo-500/10 text-indigo-500 flex items-center justify-center mx-auto">
-                    <Fingerprint className="size-5" />
-                  </div>
-                  <div>
-                    <h4 className="text-xs font-semibold text-foreground">WebAuthn / Passkey</h4>
-                    <p className="text-[11px] text-muted-foreground mt-1">
-                      {t.login.passkeyDesc}
-                    </p>
-                  </div>
-                  <Button
+                <div className="flex flex-col gap-2 pt-2 border-t border-border/60 text-center">
+                  <button
                     type="button"
-                    onClick={handlePasskeySignIn}
-                    disabled={isLoading}
-                    className="w-full text-xs font-semibold"
+                    onClick={() => {
+                      setIsBackupCodeMode(!isBackupCodeMode);
+                      setTwoFactorCode('');
+                      setErrorMsg(null);
+                    }}
+                    className="text-[11px] text-indigo-500 hover:text-indigo-400 hover:underline outline-hidden font-medium"
                   >
-                    {isLoading ? (
-                      <Loader2 className="size-3.5 animate-spin" />
-                    ) : (
-                      <>
-                        <Fingerprint className="mr-2 size-3.5" />
-                        <span>{t.login.passkeyButton}</span>
-                      </>
-                    )}
-                  </Button>
-                </div>
-              </TabsContent>
+                    {isBackupCodeMode ? t.login.twoFactorUseTotp : t.login.twoFactorUseBackup}
+                  </button>
 
-              {/* Aba 3: Magic Link */}
-              <TabsContent value="magic" className="mt-4 space-y-4">
-                {magicLinkSent ? (
-                  <div className="p-4 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-center space-y-2">
-                    <ShieldCheck className="size-8 text-emerald-500 mx-auto" />
-                    <h4 className="text-xs font-bold text-foreground">{t.login.magicLinkSentTitle}</h4>
-                    <p className="text-[11px] text-muted-foreground">{t.login.magicLinkSentDesc}</p>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setMagicLinkSent(false)}
-                      className="text-xs mt-2"
-                    >
-                      {t.common.cancel}
-                    </Button>
-                  </div>
-                ) : (
-                  <div className="space-y-3">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsTwoFactorStep(false);
+                      setTwoFactorCode('');
+                      setErrorMsg(null);
+                    }}
+                    className="text-[11px] text-muted-foreground hover:text-foreground hover:underline outline-hidden"
+                  >
+                    {t.login.twoFactorBack}
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <Tabs defaultValue="password" className="w-full">
+                <TabsList className="grid grid-cols-3 w-full bg-muted/60 p-1">
+                  <TabsTrigger value="password" className="text-xs">
+                    {t.login.emailTab}
+                  </TabsTrigger>
+                  <TabsTrigger value="passkey" className="text-xs">
+                    {t.login.passkeyTab}
+                  </TabsTrigger>
+                  <TabsTrigger value="magic" className="text-xs">
+                    {t.login.magicLinkTab}
+                  </TabsTrigger>
+                </TabsList>
+
+                {errorMsg && (
+                  <Alert variant="destructive" className="mt-4 text-xs">
+                    <AlertDescription>{errorMsg}</AlertDescription>
+                  </Alert>
+                )}
+
+                {/* Aba 1: Email e Senha */}
+                <TabsContent value="password" className="mt-4">
+                  <form onSubmit={handleEmailSignIn} className="space-y-4">
                     <div className="space-y-1.5">
-                      <Label htmlFor="magic-email" className="text-xs text-muted-foreground font-medium">
+                      <Label htmlFor="email" className="text-xs text-muted-foreground font-medium">
                         {t.login.emailLabel}
                       </Label>
-                      <Input
-                        id="magic-email"
-                        type="email"
-                        value={email}
-                        onChange={(e) => setEmail(e.target.value)}
-                        placeholder={t.login.emailPlaceholder}
-                        className="text-xs"
-                      />
+                      <div className="relative">
+                        <Mail className="size-4 text-muted-foreground absolute left-3 top-2.5" />
+                        <Input
+                          id="email"
+                          type="email"
+                          value={email}
+                          onChange={(e) => setEmail(e.target.value)}
+                          placeholder={t.login.emailPlaceholder}
+                          required
+                          className="pl-9 text-xs"
+                        />
+                      </div>
                     </div>
-                    <p className="text-[11px] text-muted-foreground">
-                      {t.login.magicLinkDesc}
-                    </p>
+
+                    <div className="space-y-1.5">
+                      <div className="flex items-center justify-between">
+                        <Label htmlFor="password" className="text-xs text-muted-foreground font-medium">
+                          {t.login.passwordLabel}
+                        </Label>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setForgotEmail(email);
+                            setIsForgotPasswordOpen(true);
+                          }}
+                          className="text-[11px] text-indigo-500 hover:text-indigo-400 hover:underline outline-hidden font-medium"
+                        >
+                          {t.login.forgotPasswordLink}
+                        </button>
+                      </div>
+                      <div className="relative">
+                        <Lock className="size-4 text-muted-foreground absolute left-3 top-2.5" />
+                        <Input
+                          id="password"
+                          type="password"
+                          value={password}
+                          onChange={(e) => setPassword(e.target.value)}
+                          placeholder={t.login.passwordPlaceholder}
+                          required
+                          className="pl-9 text-xs"
+                        />
+                      </div>
+                    </div>
+
+                    <Button type="submit" disabled={isLoading} className="w-full text-xs font-semibold mt-2">
+                      {isLoading ? (
+                        <>
+                          <Loader2 className="mr-2 size-3.5 animate-spin" />
+                          {t.login.authenticating}
+                        </>
+                      ) : (
+                        <>
+                          <span>{t.login.signInButton}</span>
+                          <ArrowRight className="ml-2 size-3.5" />
+                        </>
+                      )}
+                    </Button>
+                  </form>
+                </TabsContent>
+
+                {/* Aba 2: Passkey WebAuthn */}
+                <TabsContent value="passkey" className="mt-4 space-y-4">
+                  <div className="p-4 rounded-lg bg-muted/40 border border-border/60 text-center space-y-3">
+                    <div className="size-10 rounded-full bg-indigo-500/10 text-indigo-500 flex items-center justify-center mx-auto">
+                      <Fingerprint className="size-5" />
+                    </div>
+                    <div>
+                      <h4 className="text-xs font-semibold text-foreground">WebAuthn / Passkey</h4>
+                      <p className="text-[11px] text-muted-foreground mt-1">
+                        {t.login.passkeyDesc}
+                      </p>
+                    </div>
                     <Button
                       type="button"
-                      onClick={handleMagicLink}
+                      onClick={handlePasskeySignIn}
                       disabled={isLoading}
                       className="w-full text-xs font-semibold"
                     >
@@ -312,15 +395,68 @@ export const LoginPage: React.FC = () => {
                         <Loader2 className="size-3.5 animate-spin" />
                       ) : (
                         <>
-                          <Mail className="mr-2 size-3.5" />
-                          <span>{t.login.magicLinkButton}</span>
+                          <Fingerprint className="mr-2 size-3.5" />
+                          <span>{t.login.passkeyButton}</span>
                         </>
                       )}
                     </Button>
                   </div>
-                )}
-              </TabsContent>
-            </Tabs>
+                </TabsContent>
+
+                {/* Aba 3: Magic Link */}
+                <TabsContent value="magic" className="mt-4 space-y-4">
+                  {magicLinkSent ? (
+                    <div className="p-4 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-center space-y-2">
+                      <ShieldCheck className="size-8 text-emerald-500 mx-auto" />
+                      <h4 className="text-xs font-bold text-foreground">{t.login.magicLinkSentTitle}</h4>
+                      <p className="text-[11px] text-muted-foreground">{t.login.magicLinkSentDesc}</p>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setMagicLinkSent(false)}
+                        className="text-xs mt-2"
+                      >
+                        {t.common.cancel}
+                      </Button>
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      <div className="space-y-1.5">
+                        <Label htmlFor="magic-email" className="text-xs text-muted-foreground font-medium">
+                          {t.login.emailLabel}
+                        </Label>
+                        <Input
+                          id="magic-email"
+                          type="email"
+                          value={email}
+                          onChange={(e) => setEmail(e.target.value)}
+                          placeholder={t.login.emailPlaceholder}
+                          className="text-xs"
+                        />
+                      </div>
+                      <p className="text-[11px] text-muted-foreground">
+                        {t.login.magicLinkDesc}
+                      </p>
+                      <Button
+                        type="button"
+                        onClick={handleMagicLink}
+                        disabled={isLoading}
+                        className="w-full text-xs font-semibold"
+                      >
+                        {isLoading ? (
+                          <Loader2 className="size-3.5 animate-spin" />
+                        ) : (
+                          <>
+                            <Mail className="mr-2 size-3.5" />
+                            <span>{t.login.magicLinkButton}</span>
+                          </>
+                        )}
+                      </Button>
+                    </div>
+                  )}
+                </TabsContent>
+              </Tabs>
+            )}
           </CardHeader>
         </Card>
 
