@@ -1,5 +1,6 @@
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "@better-auth/drizzle-adapter";
+import { eq, and, sql } from "drizzle-orm";
 import {
   twoFactor,
   organization,
@@ -8,6 +9,15 @@ import {
   openAPI,
   jwt,
   bearer,
+  emailOTP,
+  createAccessControl,
+  username,
+  phoneNumber,
+  anonymous,
+  deviceAuthorization,
+  haveIBeenPwned,
+  multiSession,
+  lastLoginMethod,
 } from "better-auth/plugins";
 import { passkey } from "@better-auth/passkey";
 import { createDb } from "@/db";
@@ -18,9 +28,41 @@ import {
   sendPasswordResetEmail,
   sendEmailVerificationEmail,
   sendOrganizationInviteEmail,
+  sendEmailOTPEmail,
 } from "@/lib/email";
+import { sendSMSOTP } from "@/lib/sms";
 import { dispatchWebhook } from "@/lib/webhooks";
 import { logAuditEvent } from "@/lib/audit";
+
+const orgStatements = {
+  organization: ["update", "delete", "transfer_ownership"],
+  member: ["create", "update", "delete"],
+  invitation: ["create", "cancel"],
+  billing: ["read", "update"],
+} as const;
+
+const ac = createAccessControl(orgStatements);
+
+const defaultOrgRoles = {
+  owner: ac.newRole({
+    organization: ["update", "delete", "transfer_ownership"],
+    member: ["create", "update", "delete"],
+    invitation: ["create", "cancel"],
+    billing: ["read", "update"],
+  }),
+  admin: ac.newRole({
+    organization: ["update"],
+    member: ["create", "update"],
+    invitation: ["create", "cancel"],
+    billing: ["read"],
+  }),
+  member: ac.newRole({
+    organization: [],
+    member: [],
+    invitation: [],
+    billing: [],
+  }),
+};
 
 export function createAuth(env: Bindings, request?: Request) {
   const db = createDb(env.DB);
@@ -105,6 +147,84 @@ export function createAuth(env: Bindings, request?: Request) {
       provider: "sqlite",
       schema,
     }),
+    user: {
+      additionalFields: {
+        publicMetadata: {
+          type: "string",
+          required: false,
+          defaultValue: "{}",
+          input: false,
+          returned: true,
+        },
+        privateMetadata: {
+          type: "string",
+          required: false,
+          defaultValue: "{}",
+          input: false,
+          returned: false,
+        },
+        unsafeMetadata: {
+          type: "string",
+          required: false,
+          defaultValue: "{}",
+          input: true,
+          returned: true,
+        },
+        isSuperAdmin: {
+          type: "boolean",
+          required: false,
+          defaultValue: false,
+          input: false,
+          returned: true,
+        },
+        firstName: {
+          type: "string",
+          required: false,
+          input: true,
+          returned: true,
+        },
+        lastName: {
+          type: "string",
+          required: false,
+          input: true,
+          returned: true,
+        },
+        locale: {
+          type: "string",
+          required: false,
+          defaultValue: "en",
+          input: true,
+          returned: true,
+        },
+        timezone: {
+          type: "string",
+          required: false,
+          defaultValue: "UTC",
+          input: true,
+          returned: true,
+        },
+        theme: {
+          type: "string",
+          required: false,
+          defaultValue: "system",
+          input: true,
+          returned: true,
+        },
+        preferences: {
+          type: "string",
+          required: false,
+          defaultValue: "{}",
+          input: true,
+          returned: true,
+        },
+        lastActiveAt: {
+          type: "date",
+          required: false,
+          input: false,
+          returned: true,
+        },
+      },
+    },
     session: {
       cookieCache: {
         enabled: true,
@@ -151,14 +271,14 @@ export function createAuth(env: Bindings, request?: Request) {
               .map((e) => e.trim().toLowerCase())
               .filter(Boolean);
 
-            if (adminEmails.includes(user.email.toLowerCase())) {
-              return {
-                data: {
-                  ...user,
-                  role: "admin",
-                },
-              };
-            }
+            const isSuper = adminEmails.includes(user.email.toLowerCase());
+            return {
+              data: {
+                ...user,
+                role: isSuper ? "admin" : "user",
+                isSuperAdmin: isSuper,
+              },
+            };
           },
           after: async (user) => {
             await logAuditEvent(db, {
@@ -327,11 +447,38 @@ export function createAuth(env: Bindings, request?: Request) {
     },
     socialProviders: Object.keys(socialProviders).length > 0 ? (socialProviders as any) : undefined,
     plugins: [
+      username({
+        minUsernameLength: 3,
+        maxUsernameLength: 30,
+      }),
+      phoneNumber({
+        sendOTP: async ({ phoneNumber, code }) => {
+          await sendSMSOTP({
+            phoneNumber,
+            code,
+            env,
+          });
+        },
+      }),
+      anonymous({
+        emailDomainName: "guest.edgekit.internal",
+      }),
+      multiSession(),
+      haveIBeenPwned({
+        enabled: env.ENVIRONMENT !== "test" && process.env.NODE_ENV !== "test",
+      }),
+      lastLoginMethod(),
+      deviceAuthorization(),
       twoFactor({
         issuer: "Edgekit Auth",
       }),
       passkey(),
       organization({
+        ac,
+        roles: defaultOrgRoles,
+        dynamicAccessControl: {
+          enabled: true,
+        },
         sendInvitationEmail: async (data) => {
           const inviteUrl = `${baseURL}/accept-invitation?id=${data.id}`;
           await sendOrganizationInviteEmail({
@@ -340,6 +487,16 @@ export function createAuth(env: Bindings, request?: Request) {
             inviterEmail: (data as any).inviter?.email,
             role: data.role,
             inviteUrl,
+            env,
+          });
+        },
+      }),
+      emailOTP({
+        sendVerificationOTP: async ({ email, otp, type }) => {
+          await sendEmailOTPEmail({
+            email,
+            otp,
+            type,
             env,
           });
         },
@@ -354,7 +511,176 @@ export function createAuth(env: Bindings, request?: Request) {
           });
         },
       }),
-      jwt(),
+      jwt({
+        jwt: {
+          definePayload: async (session) => {
+            const userId = session.user.id;
+            let orgId = (session.session as any).activeOrganizationId || null;
+            let orgRole: string | null = null;
+            let orgSlug: string | null = null;
+            let orgPermissions: string[] = [];
+            let activePlan = "free";
+            let activeEntitlements: string[] = [];
+
+            try {
+              if (orgId) {
+                const [mem] = await db
+                  .select()
+                  .from(schema.member)
+                  .where(
+                    and(
+                      eq(schema.member.organizationId, orgId),
+                      eq(schema.member.userId, userId)
+                    )
+                  )
+                  .limit(1);
+
+                if (mem) {
+                  orgRole = mem.role;
+                  const [org] = await db
+                    .select()
+                    .from(schema.organization)
+                    .where(eq(schema.organization.id, orgId))
+                    .limit(1);
+                  if (org) orgSlug = org.slug;
+
+                  const [customRole] = await db
+                    .select()
+                    .from(schema.organizationRole)
+                    .where(
+                      and(
+                        eq(schema.organizationRole.organizationId, orgId),
+                        eq(schema.organizationRole.role, mem.role)
+                      )
+                    )
+                    .limit(1);
+
+                  if (customRole && customRole.permission) {
+                    try {
+                      const parsed = JSON.parse(customRole.permission);
+                      orgPermissions = Array.isArray(parsed)
+                        ? parsed
+                        : (Object.values(parsed).flat() as string[]);
+                    } catch {}
+                  } else {
+                    if (mem.role === "owner") {
+                      orgPermissions = [
+                        "org:delete",
+                        "org:update",
+                        "org:transfer_ownership",
+                        "org:members:invite",
+                        "org:members:manage",
+                        "org:billing:manage",
+                      ];
+                    } else if (mem.role === "admin") {
+                      orgPermissions = [
+                        "org:update",
+                        "org:members:invite",
+                        "org:members:manage",
+                        "org:billing:read",
+                      ];
+                    } else {
+                      orgPermissions = ["org:view"];
+                    }
+                  }
+
+                  const [sub] = await db
+                    .select()
+                    .from(schema.billingSubscription)
+                    .innerJoin(
+                      schema.billingPlan,
+                      eq(schema.billingSubscription.planId, schema.billingPlan.id)
+                    )
+                    .where(
+                      and(
+                        eq(schema.billingSubscription.targetType, "organization"),
+                        eq(schema.billingSubscription.targetId, orgId),
+                        eq(schema.billingSubscription.status, "active")
+                      )
+                    )
+                    .limit(1);
+
+                  if (sub) {
+                    activePlan = sub.billing_plan.slug;
+                    try {
+                      activeEntitlements = JSON.parse(sub.billing_plan.features || "[]");
+                    } catch {}
+                  }
+                }
+              }
+            } catch {}
+
+            let globalRoles: string[] = [];
+            let globalPermissions: string[] = [];
+            try {
+              const userRolesList = await db
+                .select({
+                  roleKey: schema.role.key,
+                })
+                .from(schema.userRole)
+                .innerJoin(schema.role, eq(schema.userRole.roleId, schema.role.id))
+                .where(eq(schema.userRole.userId, userId));
+
+              globalRoles = userRolesList.map((r) => r.roleKey);
+
+              if (globalRoles.length > 0) {
+                const permsList = await db
+                  .select({
+                    permissionKey: schema.rolePermission.permissionKey,
+                  })
+                  .from(schema.rolePermission)
+                  .innerJoin(
+                    schema.role,
+                    eq(schema.rolePermission.roleId, schema.role.id)
+                  )
+                  .where(
+                    sql`${schema.role.key} IN (${sql.join(
+                      globalRoles.map((r) => sql`${r}`),
+                      sql`, `
+                    )})`
+                  );
+
+                globalPermissions = Array.from(new Set(permsList.map((p) => p.permissionKey)));
+              }
+            } catch {}
+
+            let publicMetadata = {};
+            try {
+              if ((session.user as any).publicMetadata) {
+                publicMetadata =
+                  typeof (session.user as any).publicMetadata === "string"
+                    ? JSON.parse((session.user as any).publicMetadata)
+                    : (session.user as any).publicMetadata;
+              }
+            } catch {}
+
+            const isSuperAdmin = Boolean(
+              (session.user as any).isSuperAdmin ||
+              (session.user as any).role === "super_admin" ||
+              (session.user as any).role === "admin"
+            );
+
+            return {
+              sub: session.user.id,
+              email: session.user.email,
+              name: session.user.name,
+              username: (session.user as any).username || null,
+              locale: (session.user as any).locale || "en",
+              timezone: (session.user as any).timezone || "UTC",
+              isSuperAdmin,
+              publicMetadata,
+              org_id: orgId,
+              org_slug: orgSlug,
+              org_role: orgRole,
+              org_permissions: orgPermissions,
+              roles: globalRoles,
+              permissions: globalPermissions,
+              plan: activePlan,
+              entitlements: activeEntitlements,
+            };
+          },
+        },
+      }),
       bearer(),
       openAPI(),
     ],

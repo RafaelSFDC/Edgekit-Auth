@@ -125,10 +125,16 @@ export const LoginPage: React.FC = () => {
         return;
       }
 
-      // Check admin status
+      // Check super-admin status
       const session = await authClient.getSession();
-      if ((session?.data?.user as any)?.role !== 'admin') {
-        setErrorMsg(t.login.errorNotAdmin);
+      const isSuper = Boolean(
+        (session?.data?.user as any)?.isSuperAdmin ||
+        (session?.data?.user as any)?.role === 'super_admin' ||
+        (session?.data?.user as any)?.role === 'admin'
+      );
+      if (!isSuper) {
+        await authClient.signOut();
+        setErrorMsg('Acesso restrito ao Super-Administrador. Usuários consumidores operam unicamente via API.');
         setIsLoading(false);
         return;
       }
@@ -167,8 +173,14 @@ export const LoginPage: React.FC = () => {
       }
 
       const session = await authClient.getSession();
-      if ((session?.data?.user as any)?.role !== 'admin') {
-        setErrorMsg(t.login.errorNotAdmin);
+      const isSuper = Boolean(
+        (session?.data?.user as any)?.isSuperAdmin ||
+        (session?.data?.user as any)?.role === 'super_admin' ||
+        (session?.data?.user as any)?.role === 'admin'
+      );
+      if (!isSuper) {
+        await authClient.signOut();
+        setErrorMsg('Acesso restrito ao Super-Administrador. Usuários consumidores operam unicamente via API.');
         setIsTwoFactorLoading(false);
         return;
       }
@@ -190,6 +202,18 @@ export const LoginPage: React.FC = () => {
       if (res?.error) {
         setErrorMsg(res.error.message || 'Falha na autenticação via Passkey.');
       } else {
+        const session = await authClient.getSession();
+        const isSuper = Boolean(
+          (session?.data?.user as any)?.isSuperAdmin ||
+          (session?.data?.user as any)?.role === 'super_admin' ||
+          (session?.data?.user as any)?.role === 'admin'
+        );
+        if (!isSuper) {
+          await authClient.signOut();
+          setErrorMsg('Acesso restrito ao Super-Administrador. Usuários consumidores operam unicamente via API.');
+          setIsLoading(false);
+          return;
+        }
         toast.success('Autenticado via Passkey!');
         navigate({ to: '/' });
       }
@@ -392,8 +416,14 @@ export const LoginPage: React.FC = () => {
           <div className="size-12 rounded-xl bg-indigo-500/10 border border-indigo-500/20 text-indigo-500 mx-auto flex items-center justify-center shadow-md shadow-indigo-500/10 mb-3.5">
             <EdgekitLogo size={28} module="auth" />
           </div>
+          <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 mb-2">
+            <ShieldCheck className="size-3" />
+            <span>Developer Console — Super-Admin Only</span>
+          </div>
           <h1 className="text-2xl font-bold tracking-tight text-foreground">{t.login.title}</h1>
-          <p className="text-xs text-muted-foreground mt-1">{t.login.subtitle}</p>
+          <p className="text-xs text-muted-foreground mt-1 max-w-sm mx-auto">
+            Acesso exclusivo para administradores da infraestrutura. Usuários consumidores operam através das rotas de API.
+          </p>
         </div>
 
         <Card className="border-border/80 shadow-xl bg-card/90 backdrop-blur-xl">

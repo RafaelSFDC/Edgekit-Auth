@@ -15,6 +15,20 @@
       "when": 1793437400794,
       "tag": "0001_brown_red_skull",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1793442623817,
+      "tag": "0002_smooth_zodiak",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1793443900791,
+      "tag": "0003_massive_squadron_sinister",
+      "breakpoints": true
     }
   ]
 }

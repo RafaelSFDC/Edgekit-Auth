@@ -16,6 +16,23 @@ export const user = sqliteTable("user", {
   banned: integer("banned", { mode: "boolean" }).default(false),
   banReason: text("ban_reason"),
   banExpires: integer("ban_expires", { mode: "timestamp_ms" }),
+  publicMetadata: text("public_metadata"),
+  privateMetadata: text("private_metadata"),
+  unsafeMetadata: text("unsafe_metadata"),
+  isSuperAdmin: integer("is_super_admin", { mode: "boolean" }).default(false),
+  // Extended Profile & Preferences (Clerk / Supabase / Appwrite parity)
+  firstName: text("first_name"),
+  lastName: text("last_name"),
+  username: text("username").unique(),
+  displayUsername: text("display_username"),
+  phoneNumber: text("phone_number").unique(),
+  phoneNumberVerified: integer("phone_number_verified", { mode: "boolean" }).default(false),
+  isAnonymous: integer("is_anonymous", { mode: "boolean" }).default(false),
+  locale: text("locale").default("en"),
+  timezone: text("timezone").default("UTC"),
+  theme: text("theme").default("system"),
+  preferences: text("preferences").default("{}"),
+  lastActiveAt: integer("last_active_at", { mode: "timestamp_ms" }),
 });
 
 /**
@@ -143,6 +160,20 @@ export const invitation = sqliteTable("invitation", {
 });
 
 /**
+ * Better Auth - Dynamic Access Control / Organization Roles
+ */
+export const organizationRole = sqliteTable("organization_role", {
+  id: text("id").primaryKey(),
+  organizationId: text("organization_id")
+    .notNull()
+    .references(() => organization.id, { onDelete: "cascade" }),
+  role: text("role").notNull(),
+  permission: text("permission").notNull(), // JSON Record<string, string[]>
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }),
+});
+
+/**
  * Better Auth - JWKS Plugin Table (Key Set for Offline Token Verification)
  */
 export const jwks = sqliteTable("jwks", {
@@ -155,6 +186,22 @@ export const jwks = sqliteTable("jwks", {
   crv: text("crv"),
 });
 
+/**
+ * Better Auth - Device Authorization Plugin Table (RFC 8628 Device Code Flow)
+ */
+export const deviceCode = sqliteTable("deviceCode", {
+  id: text("id").primaryKey(),
+  deviceCode: text("device_code").notNull().unique(),
+  userCode: text("user_code").notNull().unique(),
+  userId: text("user_id").references(() => user.id, { onDelete: "cascade" }),
+  expiresAt: integer("expires_at", { mode: "timestamp_ms" }).notNull(),
+  status: text("status").notNull(),
+  lastPolledAt: integer("last_polled_at", { mode: "timestamp_ms" }),
+  pollingInterval: integer("polling_interval"),
+  clientId: text("client_id"),
+  scope: text("scope"),
+});
+
 export type User = typeof user.$inferSelect;
 export type Session = typeof session.$inferSelect;
 export type Account = typeof account.$inferSelect;
@@ -164,4 +211,6 @@ export type Passkey = typeof passkey.$inferSelect;
 export type Organization = typeof organization.$inferSelect;
 export type Member = typeof member.$inferSelect;
 export type Invitation = typeof invitation.$inferSelect;
+export type OrganizationRole = typeof organizationRole.$inferSelect;
 export type Jwks = typeof jwks.$inferSelect;
+export type DeviceCode = typeof deviceCode.$inferSelect;

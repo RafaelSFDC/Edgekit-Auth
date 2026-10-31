@@ -1,29 +1,38 @@
 # ⚡ Edgekit Auth
 
-> **High-Performance Edge Authentication Engine** construído sobre [Hono](https://hono.dev), alimentado nativamente pelo **[Better Auth](https://better-auth.com)** e projetado para **Cloudflare Workers** (Edge) com **Cloudflare D1 (SQLite)** e **Drizzle ORM**.
+> **External Identity & Access Management (IAM), RBAC and Billing Engine** construído sobre [Hono](https://hono.dev), alimentado nativamente pelo **[Better Auth](https://better-auth.com)** e projetado para rodar no Edge com **Cloudflare Workers**, **Cloudflare D1 (SQLite)** e **Drizzle ORM**.
 
 ---
 
-## ✨ Características & Plugins Nativos
+## 🏛️ Filosofia Arquitetural: Control Plane vs Data Plane
 
-- 🖥️ **Admin Console & Dashboard Navegável**: Interface visual de última geração construída com **React 19, Tailwind CSS v4, TanStack Router, TanStack Query v5, Shadcn UI (Base-Nova), i18n (pt-BR / en) e Dark/Light Mode**, servida nativamente no mesmo domínio via **Cloudflare Workers Static Assets**.
-- 🛡️ **Email & Senha com Hashing Criptográfico**: Autenticação segura com scrypt nativo, recuperação de senha e validação contra brute-force.
-- 🪪 **Passkeys / WebAuthn (`@better-auth/passkey`)**: Autenticação biométrica sem senhas (FaceID, TouchID, Windows Hello) via FIDO2.
+O **Edgekit Auth** é um serviço externo de infraestrutura (Auth-as-a-Service, no padrão profissional de mercado equivalente e superior ao **Clerk**):
+1. **Control Plane (Super-Admin Console)**:
+   - A interface web (`apps/web`) é estritamente o **Developer Console** da plataforma.
+   - Apenas o usuário **Super-Admin** (dono/operador da instância) tem permissão de login no Console.
+   - Qualquer tentativa de login por usuários consumidores de aplicações clientes é rejeitada imediatamente (`403 Forbidden`).
+2. **Data Plane (Aplicações Consumidoras)**:
+   - Os usuários finais das aplicações clientes operam exclusivamente via chamadas de API ou SDKs a partir de seus próprios frontends e backends.
+   - Frontends utilizam a **Publishable Key** (`pk_live_...` / `pk_test_...`) com validação de domínios permitidos (CORS Whitelist).
+   - Backends utilizam a **Secret Key** (`sk_live_...` / `sk_test_...`) para operações administrativas M2M ou realizam **validação offline de tokens via JWKS** (`/.well-known/jwks.json`) com zero latência.
+
+---
+
+## ✨ Características & Capacidades
+
+- 🖥️ **Developer Console (Super-Admin Only)**: Console visual completo construído em React 19, Tailwind CSS v4, TanStack Router/Query, Shadcn UI e i18n (pt-BR / en).
+- 🔑 **Dual-Key Engine (Publishable & Secret Keys)**: Suporte nativo a `pk_live_...` / `pk_test_...` com CORS Whitelist para frontends e `sk_live_...` / `sk_test_...` para backends.
+- 💳 **Billing & Entitlements Engine Integrado**: Catálogo de planos de assinatura, preços mensal/anual, checkout Stripe, portal de clientes, webhooks Stripe e validação de cotas/entitlements.
+- 🛡️ **RBAC & FGA Granular**: Catálogo de permissões atômicas, papéis globais e papéis dinâmicos por organização (`organization_role`), com proteção soberana para o criador (`owner`).
+- 🔑 **Validação Offline via JWKS & Claims Enriquecidos**: Tokens JWT assinados que já trazem `org_id`, `org_role`, `org_permissions`, `roles`, `permissions`, `plan` e `entitlements` injetados.
+- 🏷️ **Metadados em 3 Níveis (Padrão Clerk)**: `publicMetadata` (client read / server write), `privateMetadata` (server only) e `unsafeMetadata` (client read/write).
+- ✉️ **Email OTP & Passwordless**: Códigos numéricos de 6 dígitos via e-mail além de Magic Links e confirmação de e-mail.
+- 🪪 **Passkeys / WebAuthn**: Autenticação biométrica sem senhas (FaceID, TouchID, Windows Hello) via FIDO2.
 - 🔐 **Autenticação em Duas Etapas (2FA / TOTP)**: Códigos de 6 dígitos via Google Authenticator, 1Password, Authy e códigos de recuperação (*backup codes*).
-- ✉️ **Passwordless & Transações por E-mail**: Magic links, recuperação de senha, confirmação de e-mail e convites de equipe via **Resend** (com modo console/dev automático para desenvolvimento local).
-- 🔑 **Chaves de API para Backends (M2M / Secret Keys)**: Geração de chaves seguras (`ek_live_...` e `ek_test_...`) com hash SHA-256 no D1 para autenticação de microsserviços via header `Authorization: Bearer <chave>` ou `x-api-key: <chave>`.
-- 📜 **Trilha de Auditoria & Segurança (`audit_log`)**: Registro imutável de eventos de autenticação, alterações de permissão, bloqueios e ações administrativas com visualizador de metadados JSON.
-- 🔔 **Webhooks Assinados & Explorer Interativo**: Disparo assíncrono com assinatura HMAC-SHA256 (`X-Edgekit-Signature`), painel de histórico de entregas e botão para envio de ping sintético de teste.
-- 🏢 **Multi-Tenancy Global & Organizações B2B**: Visão global da instância com auditoria de membros, proprietários, delegação de papéis e convites por e-mail.
-- 📱 **Auditoria e Revogação Remota de Sessões**: Inspecionador de conexões em tempo real por usuário com revogação forçada de dispositivos suspeitos.
-- 👑 **Admin CLI & Impersonation**: CLI dedicada para criar/promover administradores (`pnpm admin:create`), suspensão de contas (`ban`/`unban`), listagem e impersonação de sessões.
-- 🔑 **Validação Offline via JWKS**: Emissão de tokens JWT com chaves públicas em `/.well-known/jwks.json` e `/api/auth/jwks` para microsserviços validarem sessões sem sobrecarregar o D1.
-- ⚡ **Alta Performance no Edge**: Caching de sessão criptografado em cookies para evitar leituras repetitivas no D1, suporte a Cross-Subdomain Cookies e Rate Limiting em memória.
-- 📱 **Modo Bearer Token**: Suporte a autenticação por header `Authorization: Bearer <token>` em adição aos cookies HTTP-only, ideal para mobile apps e SPAs.
-- 🌐 **Social OAuth Plug-and-Play**: Pré-configurado para **Google**, **GitHub**, **Discord** e **Microsoft**. Se as credenciais estiverem no `.env`, o provedor é ativado automaticamente.
-- 🔔 **Webhooks Assinados (HMAC-SHA256)**: Notificações em tempo real enviadas para serviços externos nos eventos de ciclo de vida (`user.created`, `user.updated`, `session.created`).
-- 📖 **Swagger UI & OpenAPI Automático**: Documentação interativa em `/docs` gerada dinamicamente pelo plugin OpenAPI em `/api/auth/open-api/generate-schema`.
-- 📦 **Client SDK Tipado Integrado**: Exportação pronta do client Better Auth com todos os plugins em `src/lib/auth-client.ts`.
+- 📜 **Trilha de Auditoria & Segurança (`audit_log`)**: Registro imutável de eventos de autenticação, alterações de permissão, bloqueios e ações administrativas.
+- 🔔 **Webhooks Assinados (HMAC-SHA256)**: Notificações em tempo real enviadas para serviços externos com assinatura criptográfica `X-Edgekit-Signature`.
+- 🏢 **Multi-Tenancy Global & Organizações B2B**: Visão global da instância com auditoria de membros, proprietários soberanos, delegação de papéis e convites por e-mail.
+- 🚀 **Hub Quickstart Interativo**: Aba dedicada com snippets prontos para copiar (Next.js, Node.js JWKS, Python FastAPI, cURL) preenchidos com as chaves reais da instância.
 
 ---
 

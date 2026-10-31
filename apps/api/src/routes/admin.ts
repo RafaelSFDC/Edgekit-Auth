@@ -15,12 +15,12 @@ adminRoutes.use("*", async (c, next) => {
   const auth = c.get("auth");
   const db = c.get("db");
 
-  // 1. Verificar autenticação via M2M API Key (Header Authorization ou x-api-key)
+  // 1. Verificar autenticação via M2M Secret API Key (Header Authorization ou x-api-key)
   const authHeader = c.req.header("authorization") || "";
   const xApiKey = c.req.header("x-api-key") || "";
   const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : xApiKey.trim();
 
-  if (token && (token.startsWith("ek_live_") || token.startsWith("ek_test_"))) {
+  if (token && (token.startsWith("sk_") || token.startsWith("ek_"))) {
     const apiKeyRecord = await verifyApiKey(db, token);
     if (apiKeyRecord && apiKeyRecord.role === "admin") {
       c.set("userId", apiKeyRecord.createdById || "system");
@@ -31,12 +31,17 @@ adminRoutes.use("*", async (c, next) => {
 
   // 2. Verificar autenticação via Sessão do Better Auth (Cookie)
   const session = await auth.api.getSession({ headers: c.req.raw.headers });
+  const isSuperAdmin = Boolean(
+    (session?.user as any)?.isSuperAdmin ||
+    (session?.user as any)?.role === "super_admin" ||
+    (session?.user as any)?.role === "admin"
+  );
 
-  if (!session || (session.user as any).role !== "admin") {
+  if (!session || !isSuperAdmin) {
     return c.json(
       {
         error: "Unauthorized",
-        message: "Acesso não autorizado: privilégios de administrador ou API Key válidos são necessários",
+        message: "Acesso não autorizado: privilégios de super-administrador ou Secret Key válidos são necessários",
       },
       403
     );
@@ -59,7 +64,7 @@ adminRoutes.get("/stats", async (c) => {
   const [adminsRes] = await db
     .select({ count: sql<number>`count(*)` })
     .from(schema.user)
-    .where(eq(schema.user.role, "admin"));
+    .where(sql`${schema.user.role} IN ('admin', 'super_admin') OR ${schema.user.isSuperAdmin} = 1`);
   const [bannedRes] = await db
     .select({ count: sql<number>`count(*)` })
     .from(schema.user)
@@ -226,7 +231,7 @@ adminRoutes.delete("/organizations/:id", async (c) => {
 
 /**
  * GET /api/admin/api-keys
- * Lista todas as chaves de API da instância (sem expor hashes de segurança).
+ * Lista todas as chaves de API da instância (Publishable e Secret, sem expor hashes de segurança).
  */
 adminRoutes.get("/api-keys", async (c) => {
   const db = c.get("db");
@@ -236,6 +241,9 @@ adminRoutes.get("/api-keys", async (c) => {
       id: schema.apiKey.id,
       name: schema.apiKey.name,
       prefix: schema.apiKey.prefix,
+      keyType: schema.apiKey.keyType,
+      environment: schema.apiKey.environment,
+      allowedOrigins: schema.apiKey.allowedOrigins,
       displayKey: schema.apiKey.displayKey,
       role: schema.apiKey.role,
       createdAt: schema.apiKey.createdAt,
@@ -253,20 +261,26 @@ adminRoutes.get("/api-keys", async (c) => {
 
 /**
  * POST /api/admin/api-keys
- * Gera uma nova API Key e retorna o segredo bruto apenas uma vez.
+ * Gera uma nova API Key (Publishable pk_... ou Secret sk_...) e retorna o segredo bruto apenas uma vez.
  */
 adminRoutes.post("/api-keys", async (c) => {
   const db = c.get("db");
   const body = await c.req.json().catch(() => ({}));
 
   const name = body.name?.trim() || "Nova Chave de API";
-  const prefix: "ek_live" | "ek_test" = body.prefix === "ek_test" ? "ek_test" : "ek_live";
+  const rawPrefix = (body.prefix || "sk_live").trim();
+  const validPrefixes = ["pk_live", "pk_test", "sk_live", "sk_test", "ek_live", "ek_test"] as const;
+  const prefix = (validPrefixes.includes(rawPrefix as any) ? rawPrefix : "sk_live") as any;
+
   const role = body.role === "read_only" ? "read_only" : "admin";
   const expiresInDays = Number(body.expiresInDays);
+  const allowedOrigins = Array.isArray(body.allowedOrigins)
+    ? JSON.stringify(body.allowedOrigins.map((o: string) => o.trim()).filter(Boolean))
+    : null;
 
   const expiresAt = expiresInDays > 0 ? new Date(Date.now() + expiresInDays * 86400 * 1000) : null;
 
-  const { rawKey, keyHash, displayKey } = await generateApiKey(prefix);
+  const { rawKey, keyHash, displayKey, keyType, environment } = await generateApiKey(prefix);
   const id = `key_${crypto.randomUUID()}`;
   const now = new Date();
 
@@ -274,6 +288,9 @@ adminRoutes.post("/api-keys", async (c) => {
     id,
     name,
     prefix,
+    keyType,
+    environment,
+    allowedOrigins,
     keyHash,
     displayKey,
     role,
@@ -288,7 +305,7 @@ adminRoutes.post("/api-keys", async (c) => {
     actorId: c.get("userId"),
     targetId: id,
     targetType: "api_key",
-    metadata: { name, prefix, role, displayKey },
+    metadata: { name, prefix, keyType, environment, role, displayKey },
   });
 
   return c.json({
@@ -296,6 +313,9 @@ adminRoutes.post("/api-keys", async (c) => {
       id,
       name,
       prefix,
+      keyType,
+      environment,
+      allowedOrigins: allowedOrigins ? JSON.parse(allowedOrigins) : [],
       displayKey,
       role,
       createdAt: now,
@@ -303,6 +323,125 @@ adminRoutes.post("/api-keys", async (c) => {
       rawKey, // Exibido apenas nesta resposta
     },
   });
+});
+
+/**
+ * ============================================================================
+ * USER METADATA (3-Tier: publicMetadata, privateMetadata, unsafeMetadata)
+ * ============================================================================
+ */
+
+/**
+ * GET /api/admin/users/:id/metadata
+ */
+adminRoutes.get("/users/:id/metadata", async (c) => {
+  const db = c.get("db");
+  const userId = c.req.param("id");
+
+  const [u] = await db.select().from(schema.user).where(eq(schema.user.id, userId)).limit(1);
+  if (!u) {
+    return c.json({ error: "NotFound", message: "Usuário não encontrado" }, 404);
+  }
+
+  let publicMetadata = {};
+  let privateMetadata = {};
+  let unsafeMetadata = {};
+  let preferences = {};
+
+  try {
+    if (u.publicMetadata) publicMetadata = JSON.parse(u.publicMetadata);
+  } catch {}
+  try {
+    if (u.privateMetadata) privateMetadata = JSON.parse(u.privateMetadata);
+  } catch {}
+  try {
+    if (u.unsafeMetadata) unsafeMetadata = JSON.parse(u.unsafeMetadata);
+  } catch {}
+  try {
+    if (u.preferences) preferences = JSON.parse(u.preferences);
+  } catch {}
+
+  return c.json({
+    userId,
+    publicMetadata,
+    privateMetadata,
+    unsafeMetadata,
+    preferences,
+    isSuperAdmin: Boolean(u.isSuperAdmin),
+    username: u.username,
+    displayUsername: u.displayUsername,
+    phoneNumber: u.phoneNumber,
+    isAnonymous: Boolean(u.isAnonymous),
+    locale: u.locale,
+    timezone: u.timezone,
+    theme: u.theme,
+  });
+});
+
+/**
+ * PATCH /api/admin/users/:id/metadata
+ * Updates user metadata in 3 tiers and user preferences. Only super-admin or secret key can call this.
+ */
+adminRoutes.patch("/users/:id/metadata", async (c) => {
+  const db = c.get("db");
+  const userId = c.req.param("id");
+  const body = await c.req.json().catch(() => ({}));
+
+  const [u] = await db.select().from(schema.user).where(eq(schema.user.id, userId)).limit(1);
+  if (!u) {
+    return c.json({ error: "NotFound", message: "Usuário não encontrado" }, 404);
+  }
+
+  const updates: Record<string, any> = {
+    updatedAt: new Date(),
+  };
+
+  if (body.publicMetadata !== undefined) {
+    updates.publicMetadata = JSON.stringify(body.publicMetadata);
+  }
+  if (body.privateMetadata !== undefined) {
+    updates.privateMetadata = JSON.stringify(body.privateMetadata);
+  }
+  if (body.unsafeMetadata !== undefined) {
+    updates.unsafeMetadata = JSON.stringify(body.unsafeMetadata);
+  }
+  if (body.preferences !== undefined) {
+    updates.preferences = JSON.stringify(body.preferences);
+  }
+  if (typeof body.isSuperAdmin === "boolean") {
+    updates.isSuperAdmin = body.isSuperAdmin;
+  }
+  if (body.username !== undefined) {
+    updates.username = body.username;
+  }
+  if (body.phoneNumber !== undefined) {
+    updates.phoneNumber = body.phoneNumber;
+  }
+  if (body.locale !== undefined) {
+    updates.locale = body.locale;
+  }
+  if (body.timezone !== undefined) {
+    updates.timezone = body.timezone;
+  }
+  if (body.theme !== undefined) {
+    updates.theme = body.theme;
+  }
+
+  await db.update(schema.user).set(updates).where(eq(schema.user.id, userId));
+
+  await logAuditEvent(db, {
+    action: "user.metadata_updated",
+    actorId: c.get("userId"),
+    targetId: userId,
+    targetType: "user",
+    metadata: {
+      hasPublic: body.publicMetadata !== undefined,
+      hasPrivate: body.privateMetadata !== undefined,
+      hasUnsafe: body.unsafeMetadata !== undefined,
+    },
+  });
+
+  return c.json({ success: true, message: "Metadados atualizados com sucesso" });
 });
 
 /**

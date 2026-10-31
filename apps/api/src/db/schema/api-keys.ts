@@ -9,7 +9,10 @@ import { user } from "./auth";
 export const apiKey = sqliteTable("api_key", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),
-  prefix: text("prefix").notNull().default("ek_live"),
+  prefix: text("prefix").notNull().default("sk_live"), // pk_live, pk_test, sk_live, sk_test, ek_live, ek_test
+  keyType: text("key_type").notNull().default("secret"), // "publishable" | "secret"
+  environment: text("environment").notNull().default("live"), // "live" | "test"
+  allowedOrigins: text("allowed_origins"), // JSON string array of allowed domains/origins for publishable keys
   keyHash: text("key_hash").notNull().unique(),
   displayKey: text("display_key").notNull(),
   role: text("role").notNull().default("admin"),

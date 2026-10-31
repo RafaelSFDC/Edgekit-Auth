@@ -7,6 +7,7 @@ export interface AuthContextType {
   session: any;
   isAuthenticated: boolean;
   isAdmin: boolean;
+  isSuperAdmin: boolean;
   isImpersonating: boolean;
   isLoading: boolean;
   signOut: () => Promise<void>;
@@ -21,7 +22,8 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const user = sessionData?.user ?? null;
   const session = sessionData?.session ?? null;
   const isAuthenticated = Boolean(user);
-  const isAdmin = (user as any)?.role === 'admin';
+  const isAdmin = (user as any)?.role === 'admin' || (user as any)?.role === 'super_admin';
+  const isSuperAdmin = Boolean((user as any)?.isSuperAdmin || isAdmin);
   const isImpersonating = Boolean(session?.impersonatedBy);
 
   const signOut = useCallback(async () => {
@@ -40,12 +42,13 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       session,
       isAuthenticated,
       isAdmin,
+      isSuperAdmin,
       isImpersonating,
       isLoading: isPending,
       signOut,
       refetchSession: refetch,
     }),
-    [user, session, isAuthenticated, isAdmin, isImpersonating, isPending, signOut, refetch]
+    [user, session, isAuthenticated, isAdmin, isSuperAdmin, isImpersonating, isPending, signOut, refetch]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

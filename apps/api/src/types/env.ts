@@ -47,6 +47,15 @@ export interface Bindings {
   WEBHOOK_URL?: string;
   WEBHOOK_SECRET?: string;
 
+  // Stripe Billing Integration
+  STRIPE_SECRET_KEY?: string;
+  STRIPE_WEBHOOK_SECRET?: string;
+
+  // SMS Service (Twilio)
+  TWILIO_ACCOUNT_SID?: string;
+  TWILIO_AUTH_TOKEN?: string;
+  TWILIO_PHONE_NUMBER?: string;
+
   // Rate Limiting (Memory / Cloudflare Worker)
   RATE_LIMIT_ENABLED?: string;
   RATE_LIMIT_MAX?: string;

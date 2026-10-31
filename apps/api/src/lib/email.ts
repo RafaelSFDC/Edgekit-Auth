@@ -197,3 +197,45 @@ export async function sendOrganizationInviteEmail({
     env,
   });
 }
+
+/**
+ * Email template: One-Time Passcode (6-digit Email OTP)
+ */
+export async function sendEmailOTPEmail({
+  email,
+  otp,
+  type,
+  env,
+}: {
+  email: string;
+  otp: string;
+  type: string;
+  env: Bindings;
+}) {
+  const isSignIn = type === "sign-in";
+  const subject = isSignIn
+    ? `Seu código de acesso: ${otp} - Edgekit Auth`
+    : `Seu código de verificação: ${otp} - Edgekit Auth`;
+
+  const html = `
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 500px; margin: 0 auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 12px; background-color: #ffffff;">
+      <h2 style="color: #0f172a; margin-top: 0;">Código de Verificação</h2>
+      <p style="color: #475569; font-size: 15px; line-height: 1.5;">
+        ${isSignIn ? "Use o código abaixo para entrar na sua conta com segurança:" : "Use o código abaixo para validar sua solicitação:"}
+      </p>
+      <div style="text-align: center; margin: 28px 0; background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px;">
+        <span style="font-family: monospace; font-size: 32px; font-weight: 700; letter-spacing: 6px; color: #4f46e5;">${otp}</span>
+      </div>
+      <p style="color: #64748b; font-size: 13px;">Este código expira em 10 minutos. Nunca compartilhe este código com ninguém.</p>
+      <p style="color: #94a3b8; font-size: 12px; margin-top: 24px; border-top: 1px solid #f1f5f9; padding-top: 16px;">Se você não solicitou este código, ignore este e-mail com segurança.</p>
+    </div>
+  `;
+
+  return sendEmail({
+    to: email,
+    subject,
+    html,
+    text: `Seu código Edgekit Auth é: ${otp}`,
+    env,
+  });
+}

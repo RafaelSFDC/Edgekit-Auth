@@ -18,7 +18,7 @@ setupRoutes.get("/status", async (c) => {
     const [admin] = await db
       .select({ count: sql<number>`count(*)` })
       .from(schema.user)
-      .where(eq(schema.user.role, "admin"));
+      .where(sql`${schema.user.role} IN ('admin', 'super_admin') OR ${schema.user.isSuperAdmin} = 1`);
 
     const adminCount = Number(admin?.count || 0);
     const initialized = adminCount > 0;
@@ -48,17 +48,17 @@ setupRoutes.post("/", async (c) => {
   const db = c.get("db");
   const auth = c.get("auth");
 
-  // 1. Verificação Estrita de Segurança: Nenhum admin pode existir
+  // 1. Verificação Estrita de Segurança: Nenhum super-admin pode existir
   const [admin] = await db
     .select({ count: sql<number>`count(*)` })
     .from(schema.user)
-    .where(eq(schema.user.role, "admin"));
+    .where(sql`${schema.user.role} IN ('admin', 'super_admin') OR ${schema.user.isSuperAdmin} = 1`);
 
   if (Number(admin?.count || 0) > 0) {
     return c.json(
       {
         error: "Forbidden",
-        message: "O Edgekit Auth já foi inicializado com um administrador de sistema.",
+        message: "O Edgekit Auth já foi inicializado com um super-administrador de sistema.",
       },
       403
     );
@@ -103,11 +103,12 @@ setupRoutes.post("/", async (c) => {
     );
   }
 
-  // 4. Promover o usuário criado para papel 'admin' e validar emailVerified
+  // 4. Promover o usuário criado para papel de super-administrador ('admin') com isSuperAdmin = true
   await db
     .update(schema.user)
     .set({
       role: "admin",
+      isSuperAdmin: true,
       emailVerified: true,
     })
     .where(eq(schema.user.email, email));

@@ -17,6 +17,9 @@ import { SessionsPage } from './pages/SessionsPage';
 import { ApiKeysPage } from './pages/ApiKeysPage';
 import { AuditLogsPage } from './pages/AuditLogsPage';
 import { WebhooksPage } from './pages/WebhooksPage';
+import { QuickstartPage } from './pages/QuickstartPage';
+import { PermissionsPage } from './pages/PermissionsPage';
+import { BillingPage } from './pages/BillingPage';
 import { useAuth } from './context/auth-context';
 import { EdgekitLogo } from './components/common/EdgekitLogo';
 
@@ -25,7 +28,7 @@ import { EdgekitLogo } from './components/common/EdgekitLogo';
  * Se o usuário não estiver autenticado ou não for admin, redireciona para /login.
  */
 const DashboardGuard: React.FC = () => {
-  const { isAuthenticated, isAdmin, isLoading } = useAuth();
+  const { isAuthenticated, isSuperAdmin, isLoading } = useAuth();
 
   if (isLoading) {
     return (
@@ -40,7 +43,7 @@ const DashboardGuard: React.FC = () => {
     );
   }
 
-  if (!isAuthenticated || !isAdmin) {
+  if (!isAuthenticated || !isSuperAdmin) {
     return <Navigate to="/login" replace />;
   }
 
@@ -121,6 +124,24 @@ const webhooksRoute = createRoute({
   component: WebhooksPage,
 });
 
+const quickstartRoute = createRoute({
+  getParentRoute: () => dashboardRoute,
+  path: '/quickstart',
+  component: QuickstartPage,
+});
+
+const permissionsRoute = createRoute({
+  getParentRoute: () => dashboardRoute,
+  path: '/permissions',
+  component: PermissionsPage,
+});
+
+const billingRoute = createRoute({
+  getParentRoute: () => dashboardRoute,
+  path: '/billing',
+  component: BillingPage,
+});
+
 // 5. Montagem da Árvore de Rotas
 const routeTree = rootRoute.addChildren([
   loginRoute,
@@ -128,8 +149,11 @@ const routeTree = rootRoute.addChildren([
   acceptInvitationRoute,
   dashboardRoute.addChildren([
     indexRoute,
+    quickstartRoute,
     usersRoute,
     organizationsRoute,
+    permissionsRoute,
+    billingRoute,
     sessionsRoute,
     apiKeysRoute,
     auditLogsRoute,

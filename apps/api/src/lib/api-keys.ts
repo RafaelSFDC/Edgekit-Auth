@@ -2,6 +2,8 @@ import type { Database } from "@/db";
 import * as schema from "@/db/schema";
 import { eq } from "drizzle-orm";
 
+export type ApiKeyPrefix = "pk_live" | "pk_test" | "sk_live" | "sk_test" | "ek_live" | "ek_test";
+
 /**
  * Calculates SHA-256 hex digest using Web Crypto API.
  */
@@ -17,14 +19,18 @@ export interface GeneratedApiKey {
   rawKey: string;
   keyHash: string;
   displayKey: string;
-  prefix: string;
+  prefix: ApiKeyPrefix;
+  keyType: "publishable" | "secret";
+  environment: "live" | "test";
 }
 
 /**
- * Generates a cryptographically secure M2M API Key.
- * Example: ek_live_4a79b291c840...
+ * Generates a cryptographically secure API Key (Publishable or Secret).
+ * Examples:
+ * - pk_live_4a79b291c840... (Publishable Key for Client SPAs/Mobile)
+ * - sk_live_4a79b291c840... (Secret Key for Backend M2M APIs)
  */
-export async function generateApiKey(prefix: "ek_live" | "ek_test" = "ek_live"): Promise<GeneratedApiKey> {
+export async function generateApiKey(prefix: ApiKeyPrefix = "sk_live"): Promise<GeneratedApiKey> {
   const randomBytes = new Uint8Array(24);
   crypto.getRandomValues(randomBytes);
   const randomHex = Array.from(randomBytes)
@@ -35,11 +41,16 @@ export async function generateApiKey(prefix: "ek_live" | "ek_test" = "ek_live"):
   const keyHash = await hashApiKey(rawKey);
   const displayKey = `${prefix}_${randomHex.slice(0, 6)}...${randomHex.slice(-4)}`;
 
+  const isPublishable = prefix.startsWith("pk_");
+  const isTest = prefix.endsWith("_test");
+
   return {
     rawKey,
     keyHash,
     displayKey,
     prefix,
+    keyType: isPublishable ? "publishable" : "secret",
+    environment: isTest ? "test" : "live",
   };
 }
 
@@ -77,4 +88,48 @@ export async function verifyApiKey(db: Database, rawKey: string): Promise<schema
   }
 
   return keyRecord;
+}
+
+/**
+ * Verifies a Publishable Key (pk_...) including Allowed Origins (CORS domain whitelist) check.
+ */
+export async function verifyPublishableKey(
+  db: Database,
+  rawKey: string,
+  requestOrigin?: string
+): Promise<{ valid: boolean; error?: string; apiKey?: schema.ApiKey }> {
+  if (!rawKey.startsWith("pk_")) {
+    return { valid: false, error: "Invalid publishable key format" };
+  }
+
+  const keyRecord = await verifyApiKey(db, rawKey);
+  if (!keyRecord) {
+    return { valid: false, error: "Publishable key not found or revoked" };
+  }
+
+  if (keyRecord.keyType !== "publishable") {
+    return { valid: false, error: "Key is not a publishable key" };
+  }
+
+  // Check allowed origins if specified
+  if (keyRecord.allowedOrigins && requestOrigin) {
+    try {
+      const allowed = JSON.parse(keyRecord.allowedOrigins) as string[];
+      if (Array.isArray(allowed) && allowed.length > 0) {
+        const originUrl = requestOrigin.toLowerCase();
+        const isAllowed = allowed.some((domain) => {
+          const d = domain.trim().toLowerCase();
+          return d === "*" || originUrl === d || originUrl.endsWith(`.${d.replace(/^\*\./, "")}`);
+        });
+
+        if (!isAllowed) {
+          return { valid: false, error: `Origin '${requestOrigin}' not allowed for this key` };
+        }
+      }
+    } catch {
+      // JSON parse error, pass through
+    }
+  }
+
+  return { valid: true, apiKey: keyRecord };
 }

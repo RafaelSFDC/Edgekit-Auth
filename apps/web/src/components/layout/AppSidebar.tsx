@@ -9,6 +9,8 @@ import {
   ClipboardList,
   Bell,
   Search,
+  Zap,
+  CreditCard,
 } from 'lucide-react';
 import { Link, useRouterState } from '@tanstack/react-router';
 import { useI18n } from '../../i18n/context';
@@ -46,6 +48,11 @@ export const AppSidebar: React.FC = () => {
       icon: <LayoutDashboard className="size-4 shrink-0" />,
     },
     {
+      to: '/quickstart',
+      label: 'Quickstart & SDKs',
+      icon: <Zap className="size-4 shrink-0 text-amber-400" />,
+    },
+    {
       to: '/users',
       label: t.sidebar.users,
       icon: <Users className="size-4 shrink-0" />,
@@ -54,6 +61,16 @@ export const AppSidebar: React.FC = () => {
       to: '/organizations',
       label: t.sidebar.organizations,
       icon: <Building2 className="size-4 shrink-0" />,
+    },
+    {
+      to: '/permissions',
+      label: 'Permissões & RBAC',
+      icon: <ShieldCheck className="size-4 shrink-0 text-indigo-400" />,
+    },
+    {
+      to: '/billing',
+      label: 'Billing & Planos',
+      icon: <CreditCard className="size-4 shrink-0 text-emerald-400" />,
     },
     {
       to: '/sessions',

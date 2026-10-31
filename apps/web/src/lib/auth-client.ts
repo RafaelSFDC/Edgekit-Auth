@@ -4,6 +4,11 @@ import {
   organizationClient,
   twoFactorClient,
   magicLinkClient,
+  emailOTPClient,
+  usernameClient,
+  phoneNumberClient,
+  anonymousClient,
+  multiSessionClient,
 } from 'better-auth/client/plugins';
 import { passkeyClient } from '@better-auth/passkey/client';
 
@@ -22,6 +27,11 @@ export const authClient = createAuthClient({
     twoFactorClient(),
     passkeyClient(),
     magicLinkClient(),
+    emailOTPClient(),
+    usernameClient(),
+    phoneNumberClient(),
+    anonymousClient(),
+    multiSessionClient(),
   ],
 });
 

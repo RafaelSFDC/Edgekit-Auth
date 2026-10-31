@@ -45,9 +45,10 @@ export const ApiKeysPage: React.FC = () => {
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [newKeyForm, setNewKeyForm] = useState({
     name: '',
-    prefix: 'ek_live',
+    prefix: 'pk_live',
     role: 'admin',
     expiresInDays: '90',
+    allowedOrigins: '',
   });
 
   // Modal to show raw key once
@@ -69,6 +70,10 @@ export const ApiKeysPage: React.FC = () => {
   // Create Key Mutation
   const createKeyMutation = useMutation({
     mutationFn: async (payload: typeof newKeyForm) => {
+      const allowedOriginsList = payload.allowedOrigins
+        ? payload.allowedOrigins.split(',').map((o) => o.trim()).filter(Boolean)
+        : undefined;
+
       const res = await fetch('/api/admin/api-keys', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -77,6 +82,7 @@ export const ApiKeysPage: React.FC = () => {
           prefix: payload.prefix,
           role: payload.role,
           expiresInDays: Number(payload.expiresInDays) || undefined,
+          allowedOrigins: allowedOriginsList,
         }),
       });
       if (!res.ok) throw new Error('Falha ao criar chave de API');
@@ -86,7 +92,7 @@ export const ApiKeysPage: React.FC = () => {
       queryClient.invalidateQueries({ queryKey: ['admin', 'api-keys'] });
       queryClient.invalidateQueries({ queryKey: ['admin', 'stats'] });
       setIsCreateModalOpen(false);
-      setNewKeyForm({ name: '', prefix: 'ek_live', role: 'admin', expiresInDays: '90' });
+      setNewKeyForm({ name: '', prefix: 'pk_live', role: 'admin', expiresInDays: '90', allowedOrigins: '' });
       setCreatedRawKey(data.apiKey);
       toast.success('Chave de API gerada com sucesso!');
     },
@@ -209,9 +215,11 @@ export const ApiKeysPage: React.FC = () => {
                             <Badge
                               variant="outline"
                               className={
-                                isLive
-                                  ? 'text-[10px] text-emerald-400 border-emerald-500/30'
-                                  : 'text-[10px] text-amber-400 border-amber-500/30'
+                                k.prefix.startsWith('pk_')
+                                  ? 'text-[10px] text-sky-400 border-sky-500/30 bg-sky-500/10'
+                                  : k.prefix.endsWith('_test')
+                                  ? 'text-[10px] text-amber-400 border-amber-500/30'
+                                  : 'text-[10px] text-emerald-400 border-emerald-500/30'
                               }
                             >
                               {k.prefix}
@@ -306,16 +314,42 @@ export const ApiKeysPage: React.FC = () => {
             </div>
 
             <div className="space-y-1">
-              <Label className="text-xs">Ambiente (Prefixo)</Label>
+              <Label className="text-xs">Tipo de Chave & Ambiente</Label>
               <select
                 value={newKeyForm.prefix}
                 onChange={(e) => setNewKeyForm({ ...newKeyForm, prefix: e.target.value })}
                 className="w-full h-9 rounded-md border border-input bg-transparent px-3 text-xs shadow-xs focus:outline-hidden focus:ring-1 focus:ring-ring"
               >
-                <option value="ek_live" className="bg-popover text-popover-foreground">ek_live (Produção)</option>
-                <option value="ek_test" className="bg-popover text-popover-foreground">ek_test (Desenvolvimento / Testes)</option>
+                <optgroup label="Publishable Keys (Frontends SPAs & Mobile - CORS Protegido)">
+                  <option value="pk_live" className="bg-popover text-popover-foreground">pk_live (Produção - Frontend)</option>
+                  <option value="pk_test" className="bg-popover text-popover-foreground">pk_test (Testes - Frontend)</option>
+                </optgroup>
+                <optgroup label="Secret Keys (Backends M2M - Confidencial)">
+                  <option value="sk_live" className="bg-popover text-popover-foreground">sk_live (Produção - Backend M2M)</option>
+                  <option value="sk_test" className="bg-popover text-popover-foreground">sk_test (Testes - Backend M2M)</option>
+                  <option value="ek_live" className="bg-popover text-popover-foreground">ek_live (Legado Produção)</option>
+                  <option value="ek_test" className="bg-popover text-popover-foreground">ek_test (Legado Testes)</option>
+                </optgroup>
               </select>
             </div>
+
+            {newKeyForm.prefix.startsWith('pk_') && (
+              <div className="space-y-1">
+                <div className="flex items-center justify-between">
+                  <Label className="text-xs">Domínios Autorizados (CORS Whitelist)</Label>
+                  <span className="text-[10px] text-muted-foreground">Opcional</span>
+                </div>
+                <Input
+                  value={newKeyForm.allowedOrigins}
+                  onChange={(e) => setNewKeyForm({ ...newKeyForm, allowedOrigins: e.target.value })}
+                  placeholder="https://meuapp.com, http://localhost:3000"
+                  className="text-xs font-mono"
+                />
+                <p className="text-[10px] text-muted-foreground">
+                  Separe múltiplos domínios por vírgula. Em produção, requisições de outras origens serão bloqueadas.
+                </p>
+              </div>
+            )}
 
             <div className="space-y-1">
               <Label className="text-xs">Função de Acesso</Label>

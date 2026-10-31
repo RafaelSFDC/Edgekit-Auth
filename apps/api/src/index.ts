@@ -7,6 +7,9 @@ import { createCorsMiddleware } from "@/middlewares/cors";
 import { errorHandler } from "@/middlewares/error-handler";
 import { adminRoutes } from "@/routes/admin";
 import { setupRoutes } from "@/routes/setup";
+import { billingRoutes } from "@/routes/billing";
+import { rbacRoutes } from "@/routes/rbac";
+import { userRoutes } from "@/routes/users";
 
 const app = new Hono<AppContext>();
 
@@ -94,6 +97,16 @@ app.route("/api/setup", setupRoutes);
 
 // Admin Management Custom Endpoints (Protected by Admin Auth Guard)
 app.route("/api/admin", adminRoutes);
+
+// RBAC & FGA Management Endpoints (Protected by Super-Admin Guard)
+app.route("/api/admin/rbac", rbacRoutes);
+
+// Billing & Subscriptions Endpoints (Stripe integration, checkout, portal, plans)
+app.route("/api/billing", billingRoutes);
+
+// Consumer User Self-Service Endpoints (Profile, Preferences, Sessions, Metadata)
+app.route("/api/v1/users", userRoutes);
+app.route("/api/users", userRoutes);
 
 // Mount Better Auth Handler on /api/auth/*
 app.all("/api/auth/*", (c) => {

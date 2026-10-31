@@ -24,6 +24,7 @@ import {
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { formatDate, cn } from '../lib/utils';
@@ -63,6 +64,30 @@ export const UsersPage: React.FC = () => {
   const [inspectingUser, setInspectingUser] = useState<any | null>(null);
   const [copiedId, setCopiedId] = useState(false);
   const [newPasswordForUser, setNewPasswordForUser] = useState('');
+
+  // 3-Tier Metadata & Preferences State
+  const [userPublicMeta, setUserPublicMeta] = useState('{}');
+  const [userPrivateMeta, setUserPrivateMeta] = useState('{}');
+  const [userUnsafeMeta, setUserUnsafeMeta] = useState('{}');
+  const [userPreferences, setUserPreferences] = useState('{}');
+  const [isSavingMeta, setIsSavingMeta] = useState(false);
+
+  // Fetch metadata when inspecting a user
+  const { data: inspectingUserMeta } = useQuery({
+    queryKey: ['admin', 'user-metadata', inspectingUser?.id],
+    queryFn: async () => {
+      if (!inspectingUser?.id) return null;
+      const res = await fetch(`/api/admin/users/${inspectingUser.id}/metadata`);
+      if (!res.ok) return null;
+      const data = await res.json();
+      setUserPublicMeta(JSON.stringify(data.publicMetadata || {}, null, 2));
+      setUserPrivateMeta(JSON.stringify(data.privateMetadata || {}, null, 2));
+      setUserUnsafeMeta(JSON.stringify(data.unsafeMetadata || {}, null, 2));
+      setUserPreferences(JSON.stringify(data.preferences || {}, null, 2));
+      return data;
+    },
+    enabled: Boolean(inspectingUser?.id),
+  });
 
   // Fetch users from Better Auth Admin API
   const { data, isLoading } = useQuery({
@@ -213,6 +238,59 @@ export const UsersPage: React.FC = () => {
   });
 
   // Revoke User Session Mutation
+  const handleSaveMetadata = async () => {
+    if (!inspectingUser?.id) return;
+    setIsSavingMeta(true);
+    try {
+      let pub = {};
+      let priv = {};
+      let uns = {};
+      let pref = {};
+      try {
+        pub = JSON.parse(userPublicMeta || '{}');
+      } catch {
+        throw new Error('JSON inválido em Public Metadata');
+      }
+      try {
+        priv = JSON.parse(userPrivateMeta || '{}');
+      } catch {
+        throw new Error('JSON inválido em Private Metadata');
+      }
+      try {
+        uns = JSON.parse(userUnsafeMeta || '{}');
+      } catch {
+        throw new Error('JSON inválido em Unsafe Metadata');
+      }
+      try {
+        pref = JSON.parse(userPreferences || '{}');
+      } catch {
+        throw new Error('JSON inválido em Preferências');
+      }
+
+      const res = await fetch(`/api/admin/users/${inspectingUser.id}/metadata`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          publicMetadata: pub,
+          privateMetadata: priv,
+          unsafeMetadata: uns,
+          preferences: pref,
+        }),
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.message || 'Falha ao salvar metadados');
+      }
+
+      toast.success('Metadados e preferências atualizados com sucesso!');
+    } catch (err: any) {
+      toast.error(err.message);
+    } finally {
+      setIsSavingMeta(false);
+    }
+  };
+
   const revokeUserSessionMutation = useMutation({
     mutationFn: async (sessionToken: string) => {
       return (authClient.admin as any).revokeUserSession({ sessionToken });
@@ -495,12 +573,13 @@ export const UsersPage: React.FC = () => {
                 </div>
               </DialogHeader>
 
-              {/* Tabs de Detalhes e Sessões Ativas */}
+              {/* Tabs de Detalhes, Metadados e Sessões Ativas */}
               <Tabs defaultValue="info" className="w-full">
-                <TabsList className="grid grid-cols-2 w-full">
-                  <TabsTrigger value="info" className="text-xs">Identidade & Credenciais</TabsTrigger>
+                <TabsList className="grid grid-cols-3 w-full">
+                  <TabsTrigger value="info" className="text-xs">Identidade & Perfil</TabsTrigger>
+                  <TabsTrigger value="metadata" className="text-xs">Metadados & Preferências</TabsTrigger>
                   <TabsTrigger value="sessions" className="text-xs">
-                    Sessões Ativas ({userSessions.length})
+                    Sessões ({userSessions.length})
                   </TabsTrigger>
                 </TabsList>
 
@@ -535,6 +614,21 @@ export const UsersPage: React.FC = () => {
                             <ShieldAlert className="size-3.5" /> Não verificado
                           </span>
                         )}
+                      </div>
+                    </div>
+
+                    <div className="p-3 rounded-lg border border-border/80 bg-muted/20 space-y-1">
+                      <span className="text-[11px] text-muted-foreground font-medium">Username & Telefone</span>
+                      <div className="text-xs font-medium space-y-0.5">
+                        <div>@{inspectingUserMeta?.username || inspectingUser.username || 'não definido'}</div>
+                        <div className="text-muted-foreground font-mono text-[11px]">{inspectingUserMeta?.phoneNumber || inspectingUser.phoneNumber || 'sem telefone'}</div>
+                      </div>
+                    </div>
+
+                    <div className="p-3 rounded-lg border border-border/80 bg-muted/20 space-y-1">
+                      <span className="text-[11px] text-muted-foreground font-medium">Idioma & Fuso Horário</span>
+                      <div className="text-xs font-mono">
+                        {inspectingUserMeta?.locale || 'en'} • {inspectingUserMeta?.timezone || 'UTC'}
                       </div>
                     </div>
 
@@ -646,7 +740,85 @@ export const UsersPage: React.FC = () => {
                   </div>
                 </TabsContent>
 
-                {/* Tab 2: Sessões Ativas deste Usuário */}
+                {/* Tab 2: Metadados em 3 Níveis (Padrão Clerk) */}
+                <TabsContent value="metadata" className="space-y-4 pt-3">
+                  <div className="space-y-3">
+                    <div className="space-y-1">
+                      <div className="flex items-center justify-between">
+                        <Label className="text-xs font-semibold text-emerald-400">
+                          Public Metadata (JSON)
+                        </Label>
+                        <Badge variant="outline" className="text-[10px]">Leitura: Client | Escrita: Backend</Badge>
+                      </div>
+                      <Textarea
+                        rows={3}
+                        value={userPublicMeta}
+                        onChange={(e) => setUserPublicMeta(e.target.value)}
+                        className="font-mono text-xs bg-muted/20"
+                        placeholder='{"role": "editor", "plan": "pro"}'
+                      />
+                    </div>
+
+                    <div className="space-y-1">
+                      <div className="flex items-center justify-between">
+                        <Label className="text-xs font-semibold text-indigo-400">
+                          Private Metadata (JSON)
+                        </Label>
+                        <Badge variant="destructive" className="text-[10px]">Confidencial: Apenas Backend</Badge>
+                      </div>
+                      <Textarea
+                        rows={3}
+                        value={userPrivateMeta}
+                        onChange={(e) => setUserPrivateMeta(e.target.value)}
+                        className="font-mono text-xs bg-muted/20"
+                        placeholder='{"stripeCustomerId": "cus_...", "internalId": "123"}'
+                      />
+                    </div>
+
+                    <div className="space-y-1">
+                      <div className="flex items-center justify-between">
+                        <Label className="text-xs font-semibold text-amber-400">
+                          Unsafe Metadata (JSON)
+                        </Label>
+                        <Badge variant="outline" className="text-[10px]">Leitura & Escrita: Client</Badge>
+                      </div>
+                      <Textarea
+                        rows={3}
+                        value={userUnsafeMeta}
+                        onChange={(e) => setUserUnsafeMeta(e.target.value)}
+                        className="font-mono text-xs bg-muted/20"
+                        placeholder='{"theme": "dark", "onboardingCompleted": true}'
+                      />
+                    </div>
+
+                    <div className="space-y-1">
+                      <div className="flex items-center justify-between">
+                        <Label className="text-xs font-semibold text-purple-400">
+                          User Preferences (JSON)
+                        </Label>
+                        <Badge variant="outline" className="text-[10px]">Configurações & Notificações</Badge>
+                      </div>
+                      <Textarea
+                        rows={3}
+                        value={userPreferences}
+                        onChange={(e) => setUserPreferences(e.target.value)}
+                        className="font-mono text-xs bg-muted/20"
+                        placeholder='{"emailNotifications": true, "theme": "dark"}'
+                      />
+                    </div>
+
+                    <Button
+                      size="sm"
+                      onClick={handleSaveMetadata}
+                      disabled={isSavingMeta}
+                      className="w-full text-xs bg-indigo-600 hover:bg-indigo-500"
+                    >
+                      {isSavingMeta ? 'Salvando...' : 'Salvar Alterações de Metadados & Preferências'}
+                    </Button>
+                  </div>
+                </TabsContent>
+
+                {/* Tab 3: Sessões Ativas deste Usuário */}
                 <TabsContent value="sessions" className="space-y-3 pt-3">
                   <div className="flex items-center justify-between">
                     <span className="text-xs text-muted-foreground">
